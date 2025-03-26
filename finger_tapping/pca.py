@@ -7,14 +7,14 @@ from sklearn.preprocessing import StandardScaler
 import seaborn as sns
 
 # Load data
-subject = simple_pipeline(subject=1)
+subject = simple_pipeline(subject="01")
 subject_data = subject.get_data()
 y = subject.events[:, -1]
 
 # Divide each activity
 control = subject['Control']
-left = subject['TappingLeft']
-right = subject['TappingRight']
+left = subject['Tapping/Left']
+right = subject['Tapping/Right']
 
 # Find the activity with min amount of epochs
 min_bound = np.min([x.get_data().shape[0] for x in [control, left, right]])
@@ -65,11 +65,20 @@ pc_x = 1
 pc_y = 2
 
 # Plot PCA results
+# plt.figure(figsize=(8, 6))
+# sns.scatterplot(data=pca_df, x=pc_x, y=pc_y, hue='label_name', alpha=0.7, palette="Set1")
+# plt.xlabel(f'Principal Component {pc_x + 1}')
+# plt.ylabel(f'Principal Component {pc_y + 1}')
+# plt.title('PCA on Finger Tapping Data')
+# plt.legend(title="Class")
+# plt.grid()
+# plt.show()
+
+
 plt.figure(figsize=(8, 6))
-sns.scatterplot(data=pca_df, x=pc_x, y=pc_y, hue='label_name', alpha=0.7, palette="Set1")
-plt.xlabel(f'Principal Component {pc_x + 1}')
-plt.ylabel(f'Principal Component {pc_y + 1}')
-plt.title('PCA on Finger Tapping Data')
+sns.histplot(data=pca_df, x=0, hue='label_name', kde=True, palette="Set1", element="step")
+plt.xlabel('Principal Component 1')
+plt.title('Distribution of PC1 for Finger Tapping Data')
 plt.legend(title="Class")
-plt.grid()
+plt.grid(True)
 plt.show()
