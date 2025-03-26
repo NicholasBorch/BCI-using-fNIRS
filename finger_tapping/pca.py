@@ -65,20 +65,11 @@ pc_x = 1
 pc_y = 2
 
 # Plot PCA results
-# plt.figure(figsize=(8, 6))
-# sns.scatterplot(data=pca_df, x=pc_x, y=pc_y, hue='label_name', alpha=0.7, palette="Set1")
-# plt.xlabel(f'Principal Component {pc_x + 1}')
-# plt.ylabel(f'Principal Component {pc_y + 1}')
-# plt.title('PCA on Finger Tapping Data')
-# plt.legend(title="Class")
-# plt.grid()
-# plt.show()
-
-
 plt.figure(figsize=(8, 6))
-sns.histplot(data=pca_df, x=0, hue='label_name', kde=True, palette="Set1", element="step")
-plt.xlabel('Principal Component 1')
-plt.title('Distribution of PC1 for Finger Tapping Data')
+sns.scatterplot(data=pca_df, x=pc_x, y=pc_y, hue='label_name', alpha=0.7, palette="Set1")
+plt.xlabel(f'Principal Component {pc_x + 1}')
+plt.ylabel(f'Principal Component {pc_y + 1}')
+plt.title('PCA on Finger Tapping Data')
 plt.legend(title="Class")
-plt.grid(True)
+plt.grid()
 plt.show()
