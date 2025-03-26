@@ -4,30 +4,29 @@ from pathlib import Path
 from typing import Optional
 
 import mne
-import mne_nirs
-from mne_bids import BIDSPath, read_raw_bids
+from mne_bids import BIDSPath, read_raw_bids, get_entity_vals
+from mne_nirs.datasets.fnirs_motor_group import data_path
 from mne.io import Raw
 from mne import Epochs
 
-FILTER_FREQS: dict[str, float] = {'low': 0.05, 
+FILTER_FREQS: dict[str, float] = {
+                                  'low': 0.05, 
                                   'high':0.7,
                                   'l_trans_bandwidth': 0.02,
-                                  'h_trans_bandwidth': 0.2}
+                                  'h_trans_bandwidth': 0.2
+                                  }
 NUM_SUBJECTS: int = 5
 TASK: str = "tapping"
 DATATYPE: str = "nirs"
-ROOT: str = mne_nirs.datasets.fnirs_motor_group.data_path()
+ROOT: str = data_path()
+SUBJECTS = get_entity_vals(ROOT, "subject")
 
 STIMULUS_DURATION: float = 5.0
 TRIGGER_CODE: str = "15.0"
-
 SHORT_CHANNELS_DIST: float = 0.01
 SCI_THRESHOLD: float = 0.5
-
 BEER_PPF: float = 0.1
-
 REJECT_CRITERIA: dict[str, float] = {"hbo": 80e-6}
-
 TMIN: float = -5.0
 TMAX: float = 15.0
 
@@ -37,10 +36,11 @@ RENAME_DICT = {
         "Tapping/Right": "TappingRight"
     }
 
-def load_raw_intensity(subject: int) -> Raw:
+
+def load_raw_intensity(subject: str) -> Raw:
     """Loads the raw intensity data for a given subject. Returns the raw intensity data."""
-    bids_path = BIDSPath(subject=f'0{subject}', task=TASK, datatype=DATATYPE, root=ROOT)
-    raw_intensity = read_raw_bids(bids_path, verbose=True)
+    bids_path = BIDSPath(subject=f'{subject}', task=TASK, datatype=DATATYPE, root=ROOT)
+    raw_intensity = read_raw_bids(bids_path, verbose=False)
     raw_intensity.load_data()
     return raw_intensity
 
@@ -50,8 +50,7 @@ def set_annotations(raw_intensity: Raw, stimulus_duration: Optional[float] = Non
         stimulus_duration = STIMULUS_DURATION
     if trigger_code is None:
         trigger_code = TRIGGER_CODE
-    raw_intensity.annotations.rename(RENAME_DICT)
-    raw_intensity.annotations.set_durations(stimulus_duration)
+    raw_intensity.annotations.set_durations(stimulus_duration, verbose=False)
     unwanted = np.nonzero(raw_intensity.annotations.description == trigger_code)
     raw_intensity.annotations.delete(unwanted)
     return raw_intensity
@@ -80,8 +79,10 @@ def remove_short_channels(raw_intensity: Raw, dist: Optional[float] = None) -> R
     return raw_intensity
 
 def convert_to_od(raw_intensity: Raw) -> Raw:
-    """Converts raw intensity values to optical density. Returns the raw optical density data."""
-    raw_od = mne.preprocessing.nirs.optical_density(raw_intensity)
+    """
+    Converts raw intensity values to optical density. Returns the raw optical density data.
+    """
+    raw_od = mne.preprocessing.nirs.optical_density(raw_intensity, verbose=False)
     return raw_od
 
 def set_bad_channels(raw_od: Raw, sci_threshold: Optional[float] = None) -> Raw:
@@ -102,7 +103,7 @@ def set_bad_channels(raw_od: Raw, sci_threshold: Optional[float] = None) -> Raw:
     """
     if sci_threshold is None:
         sci_threshold = SCI_THRESHOLD
-    sci = mne.preprocessing.nirs.scalp_coupling_index(raw_od)
+    sci = mne.preprocessing.nirs.scalp_coupling_index(raw_od, verbose=False)
     raw_od.info["bads"] = list(compress(raw_od.ch_names, sci < sci_threshold))
     return raw_od
 
@@ -127,12 +128,12 @@ def bandpass_filter(raw_haemo: Raw,
         l_trans_bandwidth = FILTER_FREQS["l_trans_bandwidth"]
     if h_trans_bandwidth is None:
         h_trans_bandwidth = FILTER_FREQS["h_trans_bandwidth"]
-    raw_haemo.filter(low, high, h_trans_bandwidth=h_trans_bandwidth, l_trans_bandwidth=l_trans_bandwidth) #type: ignore
+    raw_haemo.filter(low, high, h_trans_bandwidth=h_trans_bandwidth, l_trans_bandwidth=l_trans_bandwidth, verbose=False) #type: ignore
     return raw_haemo
         
 def convert_annotations_to_events(raw_haemo: Raw) -> tuple[np.ndarray, dict]:
     """Converts the annotations to events. Returns the events and event dictionary."""
-    events, event_dict = mne.events_from_annotations(raw_haemo)
+    events, event_dict = mne.events_from_annotations(raw_haemo, verbose=False)
     return events, event_dict
 
 def get_epochs(raw_haemo: Raw, 
@@ -161,28 +162,32 @@ def get_epochs(raw_haemo: Raw,
         baseline=(None, 0),
         preload=True,
         detrend=None,
-        verbose=True,
+        verbose=False,
     )
     return epochs
 
-def save_epochs(epochs: mne.Epochs, subject: int, out_dir_name: str = 'data') -> None:
+def save_epochs(epochs: mne.Epochs, subject: str, out_dir_name: str = 'data') -> None:
     """Saves the epoched data."""
     out_dir = Path(out_dir_name)
     out_dir.mkdir(parents=True, exist_ok=True)
-    save_fname = out_dir / f"sub-0{subject}_preproc-epo.fif"
+    save_fname = out_dir / f"sub-{subject}_preproc-epo.fif"
     epochs.save(str(save_fname), overwrite=True)
     
-def raw_intensity_pipeline(subject: int) -> Raw:
-    """Runs the full preprocessing pipeline on the raw intensity data for a given subject. Returns the epoched data."""
+def raw_intensity_pipeline(subject: str) -> Raw:
+    """
+    Runs the full preprocessing pipeline on the raw intensity data for a given subject. Returns the epoched data.
+    """
     raw_intensity = load_raw_intensity(subject)
     annotated_intensity = set_annotations(raw_intensity)
     short_channels_removed = remove_short_channels(annotated_intensity)
     return short_channels_removed
 
 
-def simple_pipeline(subject: int, save: bool = True) -> Epochs:
-    """Runs the full preprocessing pipeline on the raw intensity data for a given subject. Returns the epoched data.
-    Runs pipeline based on default values specified at the top of the file.""" 
+def simple_pipeline(subject: str, save: bool = True) -> Epochs:
+    """
+    Runs the full preprocessing pipeline on the raw intensity data for a given subject. Returns the epoched data.
+    Runs pipeline based on default values specified at the top of the file.
+    """ 
     intensity = raw_intensity_pipeline(subject = subject)
 
     # Converting raw intensity values to optical density
@@ -200,11 +205,12 @@ def simple_pipeline(subject: int, save: bool = True) -> Epochs:
 
     epochs = get_epochs(raw_haemo, events, event_dict)
 
-    # # Saving data for further analysis
+    # Saving data for further analysis
     if save:
-        save_epochs(epochs, subject=1)
+        save_epochs(epochs, subject=subject)
     return epochs
 
 
 if __name__ == "__main__":
-    simple_pipeline(subject=1)
+    subject = SUBJECTS[0]
+    simple_pipeline(subject=subject)
