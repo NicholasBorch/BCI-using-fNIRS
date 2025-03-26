@@ -16,23 +16,27 @@ control = subject['Control']
 left = subject['TappingLeft']
 right = subject['TappingRight']
 
+# Find the activity with min amount of epochs
 min_bound = np.min([x.get_data().shape[0] for x in [control, left, right]])
 
 # Reshape left
 def reshape_activity(epoch, min_bound):
+    """Limit epochs to min bound, reshape data to channels x merged_epochs """
     epoch_data = epoch.get_data()[:min_bound,:,:]
     n_epoch, n_channels, n_epoch_size = epoch_data.shape
-    return epoch_data.reshape(n_channels, n_epoch * n_epoch_size).T
+    epoch_data_reshaped = epoch_data.reshape(n_channels, n_epoch * n_epoch_size)
+    
+    return epoch_data_reshaped.T
 
 control_reshaped = reshape_activity(control, min_bound)
 left_reshaped = reshape_activity(left, min_bound)
 right_reshaped = reshape_activity(right, min_bound)
 
-
+# Define X input
 X = np.concatenate([control_reshaped, left_reshaped, right_reshaped], axis=0)
 
+# Create labels
 lenght =control_reshaped.shape[0]
-
 y = np.concatenate([np.full(lenght,1),np.full(lenght,2),np.full(lenght,3)])
 
 # Standardize the data
@@ -47,12 +51,13 @@ X_pca = pca.fit_transform(X_scaled)
 pca_df = pd.DataFrame(X_pca)
 pca_df['label'] = y
 
+# Renaming label 1,2,3 name to right, control and, left
 def set_label_name(x):
     if x == 1: return 'control'
     elif x == 2: return 'left'
     elif x == 3: return 'right'
     else: return np.nan
-
+    
 pca_df['label_name'] = pca_df['label'].apply(lambda x: set_label_name(x))
 
 # Define which pc to plot 
