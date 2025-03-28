@@ -47,9 +47,10 @@ def train_baseline(X, y):
     return baseline
 
 if __name__ == "__main__":
-    epoch = simple_pipeline(subject=1)
-    X_train, X_test, y_train, y_test = prepare_data_classification(epoch)
-    lda = train_lda(X_train, y_train)
-    svm = train_svm(X_train, y_train)
-    ann = train_ann(X_train, y_train)
+    epoch = simple_pipeline(subject="01")
+    X, y= prepare_data_classification(epoch)
+    lda = train_lda(X, y)
+    svm = train_svm(X, y)
+    ann = train_ann(X, y)
+    
     
