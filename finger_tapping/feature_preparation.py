@@ -1,10 +1,4 @@
-from preprocessing import simple_pipeline
 import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-import seaborn as sns
 
 def split_activities(subject):
     """ Takes the subject activities and splits it into categories"""
@@ -55,37 +49,36 @@ def extract_X_y(subject):
     y = create_labels(labels, lenght)
     return X, y
     
-    
-def plotting_pca(pc_x, pc_y):
-    """Plotting, pca index starts from 0 e.g plot pca1 and pca2 then set pc_x=0, pc_y=1"""
-    plt.figure(figsize=(8, 6))
-    sns.scatterplot(data=pca_df, x=pc_x, y=pc_y, hue='label', alpha=0.7, palette="Set1")
-    plt.xlabel(f'Principal Component {pc_x + 1}')
-    plt.ylabel(f'Principal Component {pc_y + 1}')
-    plt.title('PCA on Finger Tapping Data')
-    plt.legend(title="Class")
-    plt.grid()
-    plt.show()
-    
 if __name__ == '__main__':
-    # Load data
+    from preprocessing import simple_pipeline
+    from sklearn.decomposition import PCA
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.decomposition import FastICA
+    import pandas as pd
+
+    # Load and create features
     subject = simple_pipeline(subject="01")
-    
-    # Define X,y
     X, y = extract_X_y(subject)
-    
-    # Standardize the data
+    print(f"X shape: {X.shape}, y shape: {y.shape}")
+    print("Unique labels:", np.unique(y))
+
+    # Standardizing
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
-    # Apply PCA
+    # pca testing
     pca = PCA(n_components=5)
     X_pca = pca.fit_transform(X_scaled)
-
-    # Combine in dataframe
-    pca_df = pd.DataFrame(X_pca)
+    pca_df = pd.DataFrame(X_pca, columns=[f"PC{i+1}" for i in range(X_pca.shape[1])])
     pca_df['label'] = y
-    
-    # plot
-    plotting_pca(pc_x=0, pc_y=1)
-    
+    print(f"PCA output shape: {X_pca.shape}")
+    print("Explained variance ratio:", pca.explained_variance_ratio_)
+    print(pca_df.head())
+
+    # ica testing
+    ica = FastICA(n_components=5, max_iter=1000, tol=0.0001, random_state=42)
+    X_ica = ica.fit_transform(X_scaled)
+    ica_df = pd.DataFrame(X_ica, columns=[f"IC{i+1}" for i in range(X_ica.shape[1])])
+    ica_df['label'] = y
+    print(f"ICA output shape: {X_ica.shape}")
+    print(ica_df.head())
