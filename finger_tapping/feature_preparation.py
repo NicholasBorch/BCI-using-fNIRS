@@ -7,12 +7,14 @@ from sklearn.preprocessing import StandardScaler
 import seaborn as sns
 
 def split_activities(subject):
+    """ Takes the subject activities and splits it into categories"""
     control = subject['Control']
     left = subject['Tapping/Left']
     right = subject['Tapping/Right']
     return control, left, right
 
 def get_labels_numeric(subject):
+    """Gets numeric labels from activities for 1 subject"""
     return subject.events[:, -1]
 
 def get_minimum_bound(control, left, right):
@@ -28,12 +30,14 @@ def reshape_activity(epoch, min_bound):
     return epoch_data_reshaped.T
 
 def create_labels(labels, lenght):
+    """ Creates labels for data"""
     init_list = []
     for label in labels:
         init_list.append(np.full(lenght, label))
     return np.concatenate(init_list)
 
 def extract_X_y(subject):
+    """Combines all functions in one function and creates X and y ~ (features and labels)"""
     
     control, left, right = split_activities(subject)
     min_bound = get_minimum_bound(control, left, right)
@@ -53,6 +57,7 @@ def extract_X_y(subject):
     
     
 def plotting_pca(pc_x, pc_y):
+    """Plotting, pca index starts from 0 e.g plot pca1 and pca2 then set pc_x=0, pc_y=1"""
     plt.figure(figsize=(8, 6))
     sns.scatterplot(data=pca_df, x=pc_x, y=pc_y, hue='label', alpha=0.7, palette="Set1")
     plt.xlabel(f'Principal Component {pc_x + 1}')
