@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
     
-def plot_pca_2D(pc_x, pc_y, figsize=(8, 6), plot = True):
+def plot_pca_2D(pc_x, pc_y, figsize=(8, 6), plot = True, hue='label'):
     """Plotting, pca index starts from 0 e.g plot pca1 and pca2 then set pc_x=0, pc_y=1"""
     plt.figure(figsize=figsize)
     sns.scatterplot(data=pca_df, x=pc_x, y=pc_y, hue=hue, alpha=0.7, palette="Set1")
