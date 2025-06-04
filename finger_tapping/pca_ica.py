@@ -10,7 +10,7 @@ import pandas as pd
 def plot_pca_2D(pc_x, pc_y, figsize=(8, 6), plot = True):
     """Plotting, pca index starts from 0 e.g plot pca1 and pca2 then set pc_x=0, pc_y=1"""
     plt.figure(figsize=figsize)
-    sns.scatterplot(data=pca_df, x=pc_x, y=pc_y, hue='label', alpha=0.7, palette="Set1")
+    sns.scatterplot(data=pca_df, x=pc_x, y=pc_y, hue=hue, alpha=0.7, palette="Set1")
     plt.xlabel(f'Principal Component {pc_x + 1}')
     plt.ylabel(f'Principal Component {pc_y + 1}')
     plt.title('PCA on Finger Tapping Data')
@@ -18,10 +18,10 @@ def plot_pca_2D(pc_x, pc_y, figsize=(8, 6), plot = True):
     plt.grid()
     plt.show()
     
-def plot_ica_2D(ic_x, ic_y, figsize=(8, 6)):
+def plot_ica_2D(ic_x, ic_y, figsize=(8, 6), hue='label'):
     """Plotting, pca index starts from 0 e.g plot pca1 and pca2 then set pc_x=0, pc_y=1"""
     plt.figure(figsize=figsize)
-    sns.scatterplot(data=ica_df, x=ic_x, y=ic_y, hue='label', alpha=0.7, palette="Set1")
+    sns.scatterplot(data=ica_df, x=ic_x, y=ic_y, hue=hue, alpha=0.7, palette="Set1")
     plt.xlabel(f'Independent Component {ic_x + 1}')
     plt.ylabel(f'Independent Component {ic_y + 1}')
     plt.title('ICA on Finger Tapping Data')
