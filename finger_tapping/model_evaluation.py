@@ -2,15 +2,16 @@ import numpy as np
 from sklearn.model_selection import cross_val_score, StratifiedKFold
 from model_config import prepare_data_classification, train_lda, train_svm, train_ann, train_baseline
 from preprocessing import simple_pipeline
+from sklearn.base import BaseEstimator
 
-def evaluate_model(model, X, y, cv=5):
+def evaluate_model(model: BaseEstimator, X: np.ndarray, y: np.ndarray, cv: int = 5):
     """Evaluates a model using k-fold cross-validation"""
     kfold = StratifiedKFold(n_splits=cv, shuffle=True, random_state=42)
     scores = cross_val_score(model, X, y, cv=kfold, scoring='accuracy')
     return scores
 
 if __name__ == "__main__":
-    epoch = simple_pipeline(subject=1)
+    epoch = simple_pipeline(subject='01')
     X, y = prepare_data_classification(epoch)
     
     # Train models
