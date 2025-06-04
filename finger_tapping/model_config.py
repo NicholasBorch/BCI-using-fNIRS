@@ -2,12 +2,14 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier
-from sklearn.neural_network import MLPClassifier
 from sklearn.dummy import DummyClassifier
+from mne import Epochs
+import numpy as np
+from typing import Literal
 
 from preprocessing import simple_pipeline
 
-def prepare_data_classification(epoch=None):
+def prepare_data_classification(epoch: Epochs) -> tuple[np.ndarray, np.ndarray]:
     """Loads data from epoch, reshapes, and scales"""
     X = epoch.get_data()
     y = epoch.events[:, -1]
@@ -21,26 +23,28 @@ def prepare_data_classification(epoch=None):
     
     return X_scaled, y
 
-def train_lda(X_train, y_train):
+def train_lda(X_train: np.ndarray, y_train: np.ndarray) -> LinearDiscriminantAnalysis:
     """Train LDA model"""
     lda = LinearDiscriminantAnalysis()
     lda.fit(X_train, y_train)
     return lda 
 
-def train_svm(X_train, y_train, kernel="linear"):
-    """Train svm"""
+def train_svm(X_train: np.ndarray, y_train: np.ndarray,
+            kernel: Literal["linear", "poly", "rbf", "sigmoid", "precomputed"] = "linear"
+            ):
+    """Train SVM model"""
     svm = SVC(kernel=kernel)
     svm.fit(X_train, y_train)
     return svm
 
 
-def train_ann(X_train, y_train):
+def train_ann(X_train, y_train) -> MLPClassifier:
     """Train ann"""
     mlp = MLPClassifier(hidden_layer_sizes=(50, 20), activation='relu', solver='adam', max_iter=500, random_state=42)
     mlp.fit(X_train, y_train)
     return mlp
 
-def train_baseline(X, y):
+def train_baseline(X, y) -> DummyClassifier:
     """Train a baseline model"""
     baseline = DummyClassifier(strategy='most_frequent')
     baseline.fit(X, y)

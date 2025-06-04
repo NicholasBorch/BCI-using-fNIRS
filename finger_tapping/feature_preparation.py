@@ -1,21 +1,22 @@
 import numpy as np
+from mne import Epochs
 
-def split_activities(subject):
+def split_activities(subject: Epochs) -> tuple[Epochs, Epochs, Epochs]:
     """ Takes the subject activities and splits it into categories"""
     control = subject['Control']
     left = subject['Tapping/Left']
     right = subject['Tapping/Right']
     return control, left, right
 
-def get_labels_numeric(subject):
+def get_labels_numeric(subject: Epochs) -> np.ndarray:
     """Gets numeric labels from activities for 1 subject"""
     return subject.events[:, -1]
 
-def get_minimum_bound(control, left, right):
+def get_minimum_bound(control: Epochs, left: Epochs, right: Epochs) -> int:
     """Find the activity with min amount of epochs """
     return np.min([x.get_data().shape[0] for x in [control, left, right]])
 
-def reshape_activity(epoch, min_bound):
+def reshape_activity(epoch: Epochs, min_bound: int) -> np.ndarray:
     """Limit epochs to min bound, reshape data to channels x merged_epochs """
     epoch_data = epoch.get_data()[:min_bound,:,:]
     n_epoch, n_channels, n_epoch_size = epoch_data.shape
@@ -23,14 +24,14 @@ def reshape_activity(epoch, min_bound):
     
     return epoch_data_reshaped.T
 
-def create_labels(labels, lenght):
+def create_labels(labels: list[str], lenght: int) -> np.ndarray:
     """ Creates labels for data"""
     init_list = []
     for label in labels:
         init_list.append(np.full(lenght, label))
     return np.concatenate(init_list)
 
-def extract_X_y(subject):
+def extract_X_y(subject: Epochs) -> tuple[np.ndarray, np.ndarray]:
     """Combines all functions in one function and creates X and y ~ (features and labels)"""
     
     control, left, right = split_activities(subject)
