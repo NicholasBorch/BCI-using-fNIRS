@@ -1,53 +1,54 @@
 import numpy as np
 import pandas as pd
-import seaborn as sns
 import matplotlib.pyplot as plt
-from sklearn.cluster import KMeans
+import seaborn as sns
+from sklearn.decomposition import FastICA
 from sklearn.mixture import GaussianMixture
-from sklearn.decomposition import PCA, FastICA
 from sklearn.preprocessing import StandardScaler
-from preprocessing import simple_pipeline
 from feature_preparation import extract_X_y
+from preprocessing import simple_pipeline
 
-# Load data
+# --- Load and preprocess data ---
 subject = simple_pipeline(subject="01")
-
-# Define X,y
 X, y = extract_X_y(subject)
-
-# Standardize the data
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
 
-# Apply ICA
+# --- Apply ICA ---
 ica = FastICA(n_components=5, max_iter=1000, tol=0.0001, random_state=42)
 X_ica = ica.fit_transform(X_scaled)
 
-# Prepare DataFrame
-ica_df = pd.DataFrame(X_ica)
-ica_df['label'] = y
+# --- Create DataFrame with IC1 and IC2 ---
+ica_df = pd.DataFrame(X_ica[:, :2], columns=['IC1', 'IC2'])
+ica_df['time'] = np.arange(len(X_ica)) / 7.81  # 7.81 Hz sampling rate
 
+# --- Fit binary GMM ---
+gmm = GaussianMixture(n_components=2, covariance_type='full', random_state=42)
+gmm_labels = gmm.fit_predict(ica_df[['IC1', 'IC2']])
+ica_df['cluster'] = gmm_labels
 
-X_ic2 = ica_df[[0, 1]].values
-
-kmeans = KMeans(n_clusters=2, n_init=20, random_state=42)
-labels_km = kmeans.fit_predict(X_ic2)
-
-plt.figure(figsize=(6, 6))
-sns.scatterplot(x=X_ic2[:, 0], y=X_ic2[:, 1], hue=labels_km, palette="Set2", s=20)
-plt.title("K-Means (k = 2) on IC space")
-plt.xlabel("Independent Component 1")
-plt.ylabel("Independent Component 2")
+# --- Plot IC1 over time ---
+plt.figure(figsize=(12, 4))
+sns.scatterplot(data=ica_df, x='time', y='IC1', hue='cluster', palette='Set2', s=10)
+plt.axvline(x=ica_df.time[len(ica_df)//3], color='red', linestyle='--', label='Cue 1')
+plt.axvline(x=2*ica_df.time[len(ica_df)//3], color='red', linestyle='--', label='Cue 2')
+plt.title("IC1 over Time with GMM Clusters")
+plt.xlabel("Time (s)")
+plt.ylabel("IC1 Value")
+plt.legend()
 plt.grid(True)
+plt.tight_layout()
 plt.show()
 
-gmm = GaussianMixture(n_components=2, covariance_type="full", random_state=42)
-labels_gmm = gmm.fit_predict(X_ic2)
-
-plt.figure(figsize=(6, 6))
-sns.scatterplot(x=X_ic2[:, 0], y=X_ic2[:, 1], hue=labels_gmm, palette="Set2", s=20)
-plt.title("Gaussian Mixture (2 components) on IC space")
-plt.xlabel("Independent Component 1")
-plt.ylabel("Independent Component 2")
+# --- Plot IC2 over time ---
+plt.figure(figsize=(12, 4))
+sns.scatterplot(data=ica_df, x='time', y='IC2', hue='cluster', palette='Set2', s=10)
+plt.axvline(x=ica_df.time[len(ica_df)//3], color='red', linestyle='--', label='Cue 1')
+plt.axvline(x=2*ica_df.time[len(ica_df)//3], color='red', linestyle='--', label='Cue 2')
+plt.title("IC2 over Time with GMM Clusters")
+plt.xlabel("Time (s)")
+plt.ylabel("IC2 Value")
+plt.legend()
 plt.grid(True)
+plt.tight_layout()
 plt.show()
