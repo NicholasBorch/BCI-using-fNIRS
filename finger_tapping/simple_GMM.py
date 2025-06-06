@@ -21,7 +21,7 @@ def simple_GMM(subject_id: str, n_components_ica: int = 5, sampling_rate_hz: flo
     - random_state: int, random state for reproducibility
     """
         
-    subject = simple_pipeline(subject="01")
+    subject = simple_pipeline(subject=subject_id)
     ica, ica_df_ = run_ica(subject, n_components=n_components_ica, random_state=random_state)
    
     ica_df = ica_df_.iloc[:, :2].copy()
