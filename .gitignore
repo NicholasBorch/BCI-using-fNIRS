@@ -1,0 +1,6 @@
+## Usual files
+*.pyc
+/.env
+
+## Data folders
+/bids_raw
