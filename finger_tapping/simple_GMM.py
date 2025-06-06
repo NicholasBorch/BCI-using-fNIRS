@@ -1,11 +1,7 @@
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.decomposition import FastICA
 from sklearn.mixture import GaussianMixture
-from sklearn.preprocessing import StandardScaler
-from feature_preparation import extract_X_y
 from preprocessing import simple_pipeline
 from pca_ica import run_ica
 
