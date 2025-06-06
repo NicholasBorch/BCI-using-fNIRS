@@ -1,2 +1,8 @@
 # Files to ignore
 bids_raw
+BIDS-NIRS-Tapping-0.1.0
+data
+*.pyc
+__pycache__
+*fif
+*.DS_Store
