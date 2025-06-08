@@ -7,8 +7,8 @@ import pandas as pd
 import finger_tapping.preprocessing as pp
 
 
-def convert_tsv_bak():
-    bids_root = Path("BIDS-NIRS-Tapping-0.1.0")
+def convert_tsv_bak(bids_root):
+    bids_root = Path(bids_root)
     for sub_folder in bids_root.glob("sub-*"):
         if sub_folder.is_dir():
             sub_id = sub_folder.name
@@ -105,6 +105,8 @@ def run_tapping_pipeline(subject: str, task: str, bids_root_path: str):
 
 
 if __name__ == '__main__':
+    # # Only run once: convert_tsv_bak()
+    # convert_tsv_bak(bids_root="BIDS-NIRS-Tapping-0.1.0")
     
     # Example 1: Load raw SNIRF and print basic info
     raw_intensity = load_snirf(bids_root_path='bids_raw', subject='06', task='fingerauto')
@@ -114,7 +116,7 @@ if __name__ == '__main__':
     print("Annotations:", raw_intensity.annotations.description)
     print("Channel names:", raw_intensity.ch_names)
 
-    # Example 2: Run full pipeline and print number of epochs
+    # Example 2: Run full pipeline
     epochs = run_tapping_pipeline(subject='06', task='fingerauto', bids_root_path='bids_raw')
     print(f"Number of epochs: {len(epochs)}")
 
