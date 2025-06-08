@@ -4,7 +4,7 @@ import mne
 import numpy as np
 import re
 import pandas as pd
-import finger_tapping.preprocessing as pp
+from finger_tapping.preprocessing import preprocessing_pipeline
 
 
 def convert_tsv_bak(bids_root):
@@ -80,28 +80,15 @@ def set_channels(raw_intensity:mne.io.Raw)->mne.io.Raw:
     return raw_intensity
 
 
-def run_tapping_pipeline(subject: str, task: str, bids_root_path: str):
+def run_tapping_pipeline(subject: str, task: str, bids_root_path: str, save:bool):
     
     intensity = load_snirf(bids_root_path=bids_root_path, subject=subject, task=task)
     intensity = set_annotatations(intensity, subject, task)
     intensity = set_channels(intensity)
     
-    # Converting raw intensity values to optical density
-    raw_od = pp.convert_to_od(intensity)
-
-    raw_od = pp.set_bad_channels(raw_od)
-    
-    # Converting the optical density data to haemoglobin concentration using the modified Beer-Lambert Law
-    raw_haemo = pp.convert_to_haemoglobin(raw_od)
-
-    # Removing heart rate from signal (low-pass filter) and removing slow drifts (high-pass filter)
-    raw_haemo = pp.bandpass_filter(raw_haemo)
-
-    events, event_dict = pp.convert_annotations_to_events(raw_haemo)
-
-    epochs = pp.get_epochs(raw_haemo, events, event_dict)
-
+    epochs = preprocessing_pipeline(intensity, subject, save)
     return epochs
+
 
 
 if __name__ == '__main__':
@@ -117,6 +104,6 @@ if __name__ == '__main__':
     print("Channel names:", raw_intensity.ch_names)
 
     # Example 2: Run full pipeline
-    epochs = run_tapping_pipeline(subject='06', task='fingerauto', bids_root_path='bids_raw')
+    epochs = run_tapping_pipeline(subject='06', task='fingerauto', bids_root_path='bids_raw', save=False)
     print(f"Number of epochs: {len(epochs)}")
 
