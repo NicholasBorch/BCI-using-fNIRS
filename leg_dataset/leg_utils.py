@@ -80,10 +80,13 @@ def set_channels(raw_intensity:mne.io.Raw)->mne.io.Raw:
     return raw_intensity
 
 
-def run_tapping_pipeline(subject: str, save: bool, bids_root_path:Path, task:str):
+def run_tapping_pipeline(subject: str, task: str, bids_root_path: str):
     
-    intensity = load_snirf(bids_root_path='bids_raw', subject='06', task='fingerauto')
-        # Converting raw intensity values to optical density
+    intensity = load_snirf(bids_root_path=bids_root_path, subject=subject, task=task)
+    intensity = set_annotatations(intensity, subject, task)
+    intensity = set_channels(intensity)
+    
+    # Converting raw intensity values to optical density
     raw_od = pp.convert_to_od(intensity)
 
     raw_od = pp.set_bad_channels(raw_od)
@@ -98,19 +101,20 @@ def run_tapping_pipeline(subject: str, save: bool, bids_root_path:Path, task:str
 
     epochs = pp.get_epochs(raw_haemo, events, event_dict)
 
-    # # Saving data for further analysis
-    # if save:
-    #     save_epochs(epochs, subject=subject)
     return epochs
 
-# run_tapping_pipeline(subject=)
 
+if __name__ == '__main__':
+    
+    # Example 1: Load raw SNIRF and print basic info
+    raw_intensity = load_snirf(bids_root_path='bids_raw', subject='06', task='fingerauto')
+    raw_intensity = set_annotatations(raw_intensity, subject='06', task='fingerauto')
+    raw_intensity = set_channels(raw_intensity)
 
+    print("Annotations:", raw_intensity.annotations.description)
+    print("Channel names:", raw_intensity.ch_names)
 
-raw_intensity = load_snirf(bids_root_path='bids_raw', subject='06', task='fingerauto')
-raw_intensity = set_annotatations(raw_intensity, "06", 'fingerauto')
-load_snirf("BIDS-NIRS-Tapping-0.1.0", "01", 'tapping')
-
-print(raw_intensity.annotations.description)
-print(raw_intensity.ch_names)
+    # Example 2: Run full pipeline and print number of epochs
+    epochs = run_tapping_pipeline(subject='06', task='fingerauto', bids_root_path='bids_raw')
+    print(f"Number of epochs: {len(epochs)}")
 
