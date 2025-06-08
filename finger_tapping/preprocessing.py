@@ -173,6 +173,7 @@ def save_epochs(epochs: mne.Epochs, subject: str, out_dir_name: str = 'data') ->
     save_fname = out_dir / f"sub-{subject}_preproc-epo.fif"
     epochs.save(str(save_fname), overwrite=True)
     
+
 def raw_intensity_pipeline(subject: str) -> Raw:
     """
     Runs the full preprocessing pipeline on the raw intensity data for a given subject. Returns the epoched data.
@@ -183,13 +184,7 @@ def raw_intensity_pipeline(subject: str) -> Raw:
     return short_channels_removed
 
 
-def simple_pipeline(subject: str, save: bool = True) -> Epochs:
-    """
-    Runs the full preprocessing pipeline on the raw intensity data for a given subject. Returns the epoched data.
-    Runs pipeline based on default values specified at the top of the file.
-    """ 
-    intensity = raw_intensity_pipeline(subject = subject)
-
+def preprocessing_pipeline(intensity: mne.io.Raw, subject: str, save: bool = True) -> mne.Epochs:
     # Converting raw intensity values to optical density
     raw_od = convert_to_od(intensity)
 
@@ -209,6 +204,15 @@ def simple_pipeline(subject: str, save: bool = True) -> Epochs:
     if save:
         save_epochs(epochs, subject=subject)
     return epochs
+
+
+def simple_pipeline(subject: str, save: bool = True) -> mne.Epochs:
+    """
+    Runs the full preprocessing pipeline on the raw intensity data for a given subject. Returns the epoched data.
+    Runs pipeline based on default values specified at the top of the file.
+    """ 
+    intensity = raw_intensity_pipeline(subject = subject)
+    return preprocessing_pipeline(intensity, subject, save)
 
 
 if __name__ == "__main__":
