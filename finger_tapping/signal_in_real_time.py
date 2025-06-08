@@ -6,8 +6,7 @@ from sklearn.preprocessing import StandardScaler
 import pandas as pd
 import mne
 
-from preprocessing import simple_pipeline 
-from preprocessing import raw_intensity_pipeline
+from finger_tapping.preprocessing import simple_pipeline, raw_intensity_pipeline
 
 
 # --- Step 1: Load preprocessed data ---

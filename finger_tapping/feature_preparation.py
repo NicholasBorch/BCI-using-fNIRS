@@ -51,7 +51,7 @@ def extract_X_y(subject: Epochs) -> tuple[np.ndarray, np.ndarray]:
     return X, y
     
 if __name__ == '__main__':
-    from preprocessing import simple_pipeline
+    from finger_tapping.preprocessing import simple_pipeline
     from sklearn.decomposition import PCA
     from sklearn.preprocessing import StandardScaler
     from sklearn.decomposition import FastICA

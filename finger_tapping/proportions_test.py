@@ -5,7 +5,7 @@ from scipy.stats import chi2_contingency
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from preprocessing import simple_pipeline, SUBJECTS
+from finger_tapping.preprocessing import simple_pipeline, SUBJECTS
 from ica import run_ica    
 from feature_preparation import extract_X_y
 

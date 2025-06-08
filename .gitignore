@@ -9,6 +9,5 @@ __pycache__
 /bids_raw
 /data
 /BIDS-NIRS-Tapping-0.1.0
-
-
+/bci_fnirs.egg-info
 

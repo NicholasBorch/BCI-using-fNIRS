@@ -1,4 +1,4 @@
-from feature_preparation import extract_X_y
+from finger_tapping.feature_preparation import extract_X_y
 from preprocessing import simple_pipeline
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
