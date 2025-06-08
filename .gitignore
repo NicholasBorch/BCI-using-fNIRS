@@ -1,7 +1,14 @@
 ## Usual files
 *.pyc
 /.env
+*fif
+*.DS_Store
+__pycache__
 
 ## Data folders
 /bids_raw
 /data
+/BIDS-NIRS-Tapping-0.1.0
+
+
+
