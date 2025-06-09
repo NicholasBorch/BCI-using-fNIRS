@@ -3,7 +3,7 @@ from mne import Epochs
 
 def split_activities(subject: Epochs) -> tuple[Epochs, Epochs, Epochs]:
     """ Takes the subject activities and splits it into categories"""
-    string_label = list(set(subject.annotations.description))
+    string_label = sorted(set(subject.annotations.description))
     
     activity_data = []
     for label in string_label:
@@ -54,7 +54,7 @@ def extract_X_y(subject: Epochs) -> tuple[np.ndarray, np.ndarray]:
     X = reshaped_data
     
     # Create labels and define y
-    labels = list(set(subject.annotations.description))
+    labels = sorted(list(set(subject.annotations.description)))
     y = []
     for idx, label in enumerate(labels):
         y.extend(np.full(lenght[idx], label))
