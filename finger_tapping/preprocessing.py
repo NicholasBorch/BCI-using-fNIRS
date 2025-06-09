@@ -32,8 +32,8 @@ TMAX: float = 15.0
 
 RENAME_DICT = {
         "Control": "Control",
-        "Tapping/Left": "TappingLeft",
-        "Tapping/Right": "TappingRight"
+        "Tapping/Left": "Left",
+        "Tapping/Right": "Right"
     }
 
 
@@ -50,7 +50,9 @@ def set_annotations(raw_intensity: Raw, stimulus_duration: Optional[float] = Non
         stimulus_duration = STIMULUS_DURATION
     if trigger_code is None:
         trigger_code = TRIGGER_CODE
+        
     raw_intensity.annotations.set_durations(stimulus_duration, verbose=False)
+    raw_intensity.annotations.rename(RENAME_DICT)
     unwanted = np.nonzero(raw_intensity.annotations.description == trigger_code)
     raw_intensity.annotations.delete(unwanted)
     return raw_intensity
@@ -217,4 +219,5 @@ def simple_pipeline(subject: str, save: bool = True) -> mne.Epochs:
 
 if __name__ == "__main__":
     subject = SUBJECTS[0]
-    simple_pipeline(subject=subject)
+    test_run = simple_pipeline(subject=subject)
+    print(test_run.annotations.description)
