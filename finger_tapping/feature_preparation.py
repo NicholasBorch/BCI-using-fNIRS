@@ -1,5 +1,6 @@
 import numpy as np
 from mne import Epochs
+import pandas as pd 
 
 def split_activities(subject: Epochs) -> tuple[Epochs, Epochs, Epochs]:
     """ Takes the subject activities and splits it into categories"""
@@ -61,11 +62,32 @@ def extract_X_y(subject: Epochs) -> tuple[np.ndarray, np.ndarray]:
 
     return np.asarray(X), np.asarray(y)
 
-def sliding_window(arr, window_size, step=1):
-    """ Sliding window function. Down sampling by using the mean of each window. Takes windows size and step size into consideration"""
-    windows = np.lib.stride_tricks.sliding_window_view(arr, window_size)
-    windows = windows[::step]
-    return windows.mean(axis=1)
+def sliding_window(df:pd.DataFrame, window_size:int, step_size:int):
+    """ Apply sliding window with mean on each label group, then concatenate results."""
+    
+    result_dfs = []
+    for label in df['label'].unique():
+        df_label = df[df['label'] == label]
+
+        # Apply slideing window mean()
+        rolling_means = df_label.iloc[:, :-1].rolling(window=window_size).mean()
+
+        # Drop Null values
+        rolling_means = rolling_means.dropna().reset_index(drop=True)
+
+        # Step size
+        sliding_windows = rolling_means[::step_size].copy()
+
+        # Add sample label
+        sliding_windows['label'] = label
+
+        result_dfs.append(sliding_windows)
+        
+    # Combining all labels in one df
+    final_df = pd.concat(result_dfs, ignore_index=True)
+    
+    return final_df
+
 
 if __name__ == '__main__':
     from finger_tapping.preprocessing import simple_pipeline
@@ -100,3 +122,7 @@ if __name__ == '__main__':
     ica_df['label'] = y
     print(f"ICA output shape: {X_ica.shape}")
     print(ica_df.head())
+    
+    # Sliding window testing 
+    sw1 = sliding_window(pca_df, 150, 20)
+    print("Shape of sw_df:", sw1.shape)
