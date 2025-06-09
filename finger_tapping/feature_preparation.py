@@ -77,18 +77,18 @@ def extract_X_y(subject: Epochs) -> tuple[np.ndarray, np.ndarray]:
     for split in splitted_data:
         reshape = reshape_activity(split, min_bound)
         lenght.append(reshape.shape[0]) 
-        reshaped_data.extend()
+        reshaped_data.extend(reshape)
 
     # Define X input
-    X = np.asarray(reshaped_data)
+    X = reshaped_data
     
-    ######### FIX ############
     # Create labels and define y
-    lenght = splitted_data[0].shape[0]
-    labels = ['control', 'left','rigth']
-    y = create_labels(labels, lenght)
-    return X, y
-    ######### FIX ############
+    labels = list(set(subject.annotations.description))
+    y = []
+    for idx, label in enumerate(labels):
+        y.extend(np.full(lenght[idx], label))
+
+    return np.asarray(X), np.asarray(y)
 
 def sliding_window(arr, window_size, step=1):
     """ Sliding window function. Down sampling by using the mean of each window. Takes windows size and step size into consideration"""
