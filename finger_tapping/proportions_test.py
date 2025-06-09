@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from preprocessing import simple_pipeline, SUBJECTS
-from ica import run_ica    
+from pca_ica import run_ica    
 from feature_preparation import extract_X_y
 
 def plot_clustering(ica_df: pd.DataFrame) -> None:
@@ -37,7 +37,7 @@ def plot_clustering(ica_df: pd.DataFrame) -> None:
     plt.tight_layout()
     plt.show()
 
-def GMM_on_IC(X: np.ndarray, y: np.ndarray,  window_size: int = 10, n_components_ica: int = 5, sampling_rate_hz: float = 7.81, random_state: int = 42, plot: bool = False) -> tuple[pd.DataFrame, pd.Series]:
+def GMM_on_IC(subject,  window_size: int = 10, n_components_ica: int = 5, sampling_rate_hz: float = 7.81, random_state: int = 42, plot: bool = False) -> tuple[pd.DataFrame, pd.Series]:
     """
     Perform ICA and GMM clustering on finger tapping data for a given subject.
     
@@ -48,7 +48,7 @@ def GMM_on_IC(X: np.ndarray, y: np.ndarray,  window_size: int = 10, n_components
     - plot: bool, whether to plot the results
     - random_state: int, random state for reproducibility
     """
-    _, ica_df_ = run_ica(X, y, n_components=n_components_ica, random_state=random_state)
+    _, ica_df_ = run_ica(subject, n_components=n_components_ica, random_state=random_state)
     print(ica_df_.columns)
     labels = ica_df_['label']
    
@@ -133,7 +133,7 @@ if __name__ == "__main__":
         print(f"Processing subject {subject}...")
         epochs = simple_pipeline(subject=subject, save=False)
         X, y = extract_X_y(epochs)
-        df, labels = GMM_on_IC(X, y, n_components_ica=2, plot=True)
+        df, labels = GMM_on_IC(epochs, n_components_ica=2, plot=True)
         p_value = predict_p_value(df, labels, verbose=False)
         print(f"Subject {subject} p-value: {p_value:.3g}")
         threshold = 1*10**-15  # Adjusted threshold for significance
@@ -149,7 +149,7 @@ if __name__ == "__main__":
         print(f"Processing subject {subject}...")
         epochs = simple_pipeline(subject=subject, save=False)
         X, y = extract_X_y(epochs)
-        df, labels = GMM_on_raw(X, y, n_components=10, window_size=1)
+        df, labels = GMM_on_raw(epochs, n_components=10, window_size=1)
         p_value = predict_p_value(df, labels, verbose=False)
         print(f"Subject {subject} p-value: {p_value:.3g}")
         if threshold_p_val(p_value, threshold=1*10**-15):

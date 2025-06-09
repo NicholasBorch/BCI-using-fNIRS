@@ -56,12 +56,16 @@ def run_pca(subject, n_components = 5, random_state = 42):
     # Combine in dataframe
     pca_df = pd.DataFrame(X_pca)
     pca_df['label'] = y
-    return pca, pca_df, X_scaled, y
+    return pca, pca_df
     
 
 def run_ica(subject, n_components = 5, random_state = 42):
     """Running ICA on subject data"""
-    _, _, X_scaled, y = run_pca(subject, n_components=n_components, random_state=random_state)
+    X, y = extract_X_y(subject)
+
+    # Standardize the data
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
 
     # Apply ICA
     ica = FastICA(n_components = n_components, max_iter=1000, tol=0.0001, random_state = random_state)
@@ -79,7 +83,7 @@ if __name__ == '__main__':
     subject = simple_pipeline(subject="01")
 
     # Run PCA
-    pca, pca_df, X_scaled, y = run_pca(subject)
+    pca, pca_df= run_pca(subject)
 
     # Run ICA
     ica, ica_df = run_ica(subject)
