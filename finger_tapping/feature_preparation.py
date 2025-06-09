@@ -3,22 +3,28 @@ from mne import Epochs
 
 def split_activities(subject: Epochs) -> tuple[Epochs, Epochs, Epochs]:
     """ Takes the subject activities and splits it into categories"""
-    control = subject['Control']
-    left = subject['Tapping/Left']
-    right = subject['Tapping/Right']
-    return control, left, right
+    string_label = sorted(set(subject.annotations.description))
+    
+    activity_data = []
+    for label in string_label:
+        activity_data.append(subject[label].get_data())
+        
+    return activity_data
 
 def get_labels_numeric(subject: Epochs) -> np.ndarray:
     """Gets numeric labels from activities for 1 subject"""
     return subject.events[:, -1]
 
-def get_minimum_bound(control: Epochs, left: Epochs, right: Epochs) -> int:
-    """Find the activity with min amount of epochs """
-    return np.min([x.get_data().shape[0] for x in [control, left, right]])
 
-def reshape_activity(epoch: Epochs, min_bound: int) -> np.ndarray:
+def get_minimum_bound(epoch_list:list) -> int:
+    """Find the activity with min amount of epochs """
+    n_epochs = [epoch_list[x].shape[0] for x in range(len(epoch_list))] 
+    minimum_epochs = np.min(n_epochs)
+    return minimum_epochs
+
+def reshape_activity(epoch: list, min_bound: int) -> np.ndarray:
     """Limit epochs to min bound, reshape data to channels x merged_epochs """
-    epoch_data = epoch.get_data()[:min_bound,:,:]
+    epoch_data = epoch[:min_bound,:,:]
     n_epoch, n_channels, n_epoch_size = epoch_data.shape
     epoch_data_reshaped = epoch_data.reshape(n_channels, n_epoch * n_epoch_size)
     
@@ -34,22 +40,27 @@ def create_labels(labels: list[str], lenght: int) -> np.ndarray:
 def extract_X_y(subject: Epochs) -> tuple[np.ndarray, np.ndarray]:
     """Combines all functions in one function and creates X and y ~ (features and labels)"""
     
-    control, left, right = split_activities(subject)
-    min_bound = get_minimum_bound(control, left, right)
+    splitted_data = split_activities(subject)
+    min_bound = get_minimum_bound(splitted_data)
     
-    control_reshaped = reshape_activity(control, min_bound)
-    left_reshaped = reshape_activity(left, min_bound)
-    right_reshaped = reshape_activity(right, min_bound)
-    
-    # Define X input
-    X = np.concatenate([control_reshaped, left_reshaped, right_reshaped], axis=0)
+    reshaped_data = []
+    lenght = [] # Used later for labels
+    for split in splitted_data:
+        reshape = reshape_activity(split, min_bound)
+        lenght.append(reshape.shape[0]) 
+        reshaped_data.extend(reshape)
 
-    # Create labels and define y
-    lenght = control_reshaped.shape[0]
-    labels = ['control', 'left','rigth']
-    y = create_labels(labels, lenght)
-    return X, y
+    # Define X input
+    X = reshaped_data
     
+    # Create labels and define y
+    labels = sorted(list(set(subject.annotations.description)))
+    y = []
+    for idx, label in enumerate(labels):
+        y.extend(np.full(lenght[idx], label))
+
+    return np.asarray(X), np.asarray(y)
+
 def sliding_window(arr, window_size, step=1):
     """ Sliding window function. Down sampling by using the mean of each window. Takes windows size and step size into consideration"""
     windows = np.lib.stride_tricks.sliding_window_view(arr, window_size)
