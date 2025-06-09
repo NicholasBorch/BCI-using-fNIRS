@@ -50,6 +50,12 @@ def extract_X_y(subject: Epochs) -> tuple[np.ndarray, np.ndarray]:
     y = create_labels(labels, lenght)
     return X, y
     
+def sliding_window(arr, window_size, step=1):
+    """ Sliding window function. Down sampling by using the mean of each window. Takes windows size and step size into consideration"""
+    windows = np.lib.stride_tricks.sliding_window_view(arr, window_size)
+    windows = windows[::step]
+    return windows.mean(axis=1)
+
 if __name__ == '__main__':
     from finger_tapping.preprocessing import simple_pipeline
     from sklearn.decomposition import PCA
