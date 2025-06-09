@@ -7,7 +7,7 @@ from mne import Epochs
 import numpy as np
 from typing import Literal
 
-from preprocessing import simple_pipeline
+from finger_tapping.preprocessing import simple_pipeline
 
 def prepare_data_classification(epoch: Epochs) -> tuple[np.ndarray, np.ndarray]:
     """Loads data from epoch, reshapes, and scales"""
