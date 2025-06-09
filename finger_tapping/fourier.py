@@ -1,4 +1,4 @@
-from preprocessing import simple_pipeline
+from finger_tapping.preprocessing import simple_pipeline
 import numpy as np
 from sklearn.decomposition import FastICA
 import matplotlib.pyplot as plt

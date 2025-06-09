@@ -1,7 +1,7 @@
 import numpy as np
 from sklearn.model_selection import cross_val_score, StratifiedKFold
 from model_config import prepare_data_classification, train_lda, train_svm, train_ann, train_baseline
-from preprocessing import simple_pipeline
+from finger_tapping.preprocessing import simple_pipeline
 from sklearn.base import BaseEstimator
 
 def evaluate_model(model: BaseEstimator, X: np.ndarray, y: np.ndarray, cv: int = 5):

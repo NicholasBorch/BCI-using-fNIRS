@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.mixture import GaussianMixture
-from preprocessing import simple_pipeline
+from finger_tapping.preprocessing import simple_pipeline
 from pca_ica import run_ica
 
 def simple_GMM(subject_id: str, n_components_ica: int = 5, sampling_rate_hz: float = 7.81, plot: bool = True, random_state: int = 42):
