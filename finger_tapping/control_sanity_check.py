@@ -10,8 +10,8 @@ from sklearn.decomposition import FastICA
 from sklearn.mixture import GaussianMixture
 
 from finger_tapping.preprocessing import simple_pipeline
-from finger_tapping.feature_preparation import _select_channels
-from finger_tapping.eval_GMM2 import cluster_task_chi2
+from finger_tapping.feature_preparation2 import _select_channels
+from finger_tapping.evaluate_GMM2 import cluster_task_chi2
 
 
 def control_only_test( subject_id: str, n_components_ica: int = 5, sampling_rate_hz: float = 7.81, include_hbr: bool = False, random_state: int = 42, plot: bool = True):

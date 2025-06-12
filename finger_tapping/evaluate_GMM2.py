@@ -75,7 +75,7 @@ def cluster_task_chi2(df: pd.DataFrame, alpha: float = 0.05) -> dict:
 
 # ────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    from finger_tapping.simple_GMM2 import simple_GMM
+    from finger_tapping.simple_GMM2_0 import simple_GMM
 
     subject = "01"
 
