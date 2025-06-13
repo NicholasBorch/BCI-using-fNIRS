@@ -7,9 +7,13 @@ from scipy.ndimage import uniform_filter1d
 from typing import Any
 from statsmodels.stats.multitest import multipletests
 from scipy.stats import ttest_1samp
+from leg_utils import run_tapping_pipeline
 
-def get_data(subject: str) -> dict[str, Any]:
-    epochs = simple_pipeline(subject=subject, save=False)
+def get_data(subject: str, legs: bool = False) -> dict[str, Any]:
+    if legs:
+        epochs = run_tapping_pipeline(subject=subject, task='fingerauto', bids_root_path='bids_raw', save=False)
+    else:
+        epochs = simple_pipeline(subject=subject, save=False)
     events = epochs.events
     map_ = {v: k for k, v in epochs.event_id.items()}
 
@@ -35,13 +39,13 @@ def center_data(data_concat: np.ndarray) -> np.ndarray:
     """Centers the data by subtracting the mean."""
     return (data_concat - np.mean(data_concat, axis=0)) / np.std(data_concat, axis=0)
 
-def get_ICA_signal(data_concat: np.ndarray, n_channels: int) -> np.ndarray:
+def get_ICA_signal(data_concat: np.ndarray, n_components: int) -> np.ndarray:
     """Performs ICA on the concatenated data and returns the signal."""
-    ica = FastICA(random_state=42, whiten='unit-variance', max_iter=1000)
+    ica = FastICA(random_state=42, whiten='unit-variance', max_iter=1000, tol=0.0001)#, n_components=n_components)
     S_ = ica.fit_transform(data_concat)  # (n_epochs * n_times, n_components)
     return S_
 
-def get_segments(ica_signal: np.ndarray, events: np.ndarray, sfreq: float, delay_secs: int = 5) -> tuple[list[list[np.ndarray]], np.ndarray]:
+def get_segments(ica_signal: np.ndarray, events: np.ndarray, sfreq: float, delay_secs: int = 0) -> tuple[list[list[np.ndarray]], np.ndarray]:
     """Extracts segments from the ICA signal based on event onsets.
     
     Args:
@@ -81,7 +85,7 @@ def get_segments_rolling(
     ica_signal: np.ndarray,
     events: np.ndarray,
     sfreq: float,
-    delay_secs: int = 5,
+    delay_secs: int = 0,
     window_secs: float = 5.0,    # length of each rolling window
     step_secs: float = 1.0       # stride of each rolling window
 ) -> tuple[list[list[np.ndarray]], np.ndarray]:
@@ -151,16 +155,17 @@ def get_power_density(fft_results: list[np.ndarray]) -> list[float]:
     return [np.sum(amp**2) for amp in fft_results]
 
 def segment_pipeline(data: dict[str, Any],
-                    delay_secs: int = 5,
+                    n_components: int,
+                    delay_secs: int = 0,
                     sliding_window_size: int = 1,
                     window_secs: float = 15.0,
                     step_secs: float = 1.0) -> tuple[list[list[np.ndarray]], np.ndarray]:
     windowed_data = sliding_window(data['data'], window_size=sliding_window_size)
     centered_data = center_data(windowed_data)
-    ica_signal = get_ICA_signal(centered_data, n_channels=data['n_channels'])
-    # segments, true_labels = get_segments_rolling(ica_signal, data['events'], sfreq=data['sfreq'],
-    #                                              delay_secs=delay_secs, window_secs=window_secs, step_secs=step_secs)
-    segments, true_labels = get_segments(ica_signal, data['events'], sfreq=data['sfreq'], delay_secs=delay_secs)
+    ica_signal = get_ICA_signal(centered_data, n_components=n_components)
+    segments, true_labels = get_segments_rolling(ica_signal, data['events'], sfreq=data['sfreq'],
+                                                 delay_secs=delay_secs, window_secs=window_secs, step_secs=step_secs)
+    # segments, true_labels = get_segments(ica_signal, data['events'], sfreq=data['sfreq'], delay_secs=delay_secs)
     return segments, true_labels
 
 def fft_pipeline(segments: list[list[np.ndarray]], num_components: int, sfreq: float, target_length: int) -> tuple[np.ndarray, np.ndarray]:
@@ -249,7 +254,7 @@ def get_corrected_pvals(pvals: np.ndarray, alpha: float = 0.05) -> np.ndarray:
     return pvals_corrected.reshape(pvals.shape)  # Reshape back to original shape
 
 def main(subject: str, NUM_COMPONENTS: int, NUM_BINS: int, ALPHA: float, TARGET_LENGTH: int = 256,
-         temp_shuffle: bool = False) -> tuple[bool, bool]: #I know this is bad practice
+         temp_shuffle: bool = False, legs: bool = False) -> tuple[bool, bool]: #I know this is bad practice
     """CHECK IF TARGET_LENGTH MATCHES ROLLING SEGMENTS
 
     Args:
@@ -259,12 +264,17 @@ def main(subject: str, NUM_COMPONENTS: int, NUM_BINS: int, ALPHA: float, TARGET_
         ALPHA (float): _description_
         TARGET_LENGTH (int, optional): _description_. Defaults to 256.
     """
-    data = get_data(subject)
-    segments, true_labels = segment_pipeline(data, delay_secs=5, sliding_window_size=3, window_secs=15, step_secs=1.0)
+    data = get_data(subject, legs = legs)
+    segments, true_labels = segment_pipeline(data, delay_secs=5, sliding_window_size=100, window_secs=10, step_secs=.25,
+                                             n_components=NUM_COMPONENTS)
     
-    control_indices = true_labels == 1
-    activity_indices = true_labels != 1
-    
+    if legs:
+        control_indices = true_labels == 2
+        activity_indices = true_labels != 2
+    else:
+        control_indices = true_labels == 1
+        activity_indices = true_labels != 1
+        
     ## For "testing" purposes, we will move some control indices to activity indices   
     if temp_shuffle:
         ctrl_to_activity_ratio = 0.66  # Ratio of control indices to switch to activity
@@ -273,11 +283,13 @@ def main(subject: str, NUM_COMPONENTS: int, NUM_BINS: int, ALPHA: float, TARGET_
         indices_to_switch = np.random.choice(np.where(control_indices)[0], size=num_to_switch, replace=False)
         activity_indices[indices_to_switch] = True
         control_indices[indices_to_switch] = False
-        print(f"Control indices: {np.sum(control_indices)}, Activity indices: {np.sum(activity_indices)}")    
+    print(f"Control indices: {np.sum(control_indices)}, Activity indices: {np.sum(activity_indices)}")  
+    print(f"Total segments: {len(segments)}")  
     
-    
+    print('APPLYING FFT')
     comp_fft, _ = fft_pipeline(segments, num_components=NUM_COMPONENTS, sfreq=data['sfreq'], target_length=TARGET_LENGTH)
     
+    print('FINDING DISTRIBUTION DIFFERENCES')
     binned_activity_power_diff, binned_control_power_diff = find_distr_difference(comp_fft= comp_fft,
                                                                                 control_indices=control_indices,
                                                                                 activity_indices=activity_indices,
@@ -336,7 +348,7 @@ if __name__ == '__main__':
     for subject in SUBJECTS:
         for shuf in [False, True]:
             print(f"Processing subject: {subject} with shuffle={shuf}")
-            ac, ct = main(subject=subject, NUM_COMPONENTS=5, NUM_BINS=4, ALPHA=0.05, TARGET_LENGTH=2024, temp_shuffle=shuf)
+            ac, ct = main(subject=subject, NUM_COMPONENTS=2, NUM_BINS=2, ALPHA=0.05, TARGET_LENGTH=2024, temp_shuffle=shuf)
             print(f"Activity significance: {ac}, Should be {not shuf}")
             print(f"Control significance: {ct}, Should be False")
             print('Success:', ac == (not shuf) and ct is False)
@@ -348,3 +360,27 @@ if __name__ == '__main__':
                 fn += not ac
             print("\n" + "="*50 + "\n")
     print(f"True Positives: {tp}, False Positives: {fp}, False Negatives: {fn}, True Negatives: {tn}")
+    
+    # on legs
+    # print('RUNNING ON LEGS')
+    # leg_subs = [f"{i:02d}" for i in range(1, 96)]
+    # fp, tp, fn, tn = 0, 0, 0, 0
+    # for subject in leg_subs:
+    #     try:
+    #         for shuf in [False, True]:
+    #             print(f"Processing subject: {subject} with shuffle={shuf}")
+    #             ac, ct = main(subject=subject, NUM_COMPONENTS=3, NUM_BINS=2, ALPHA=0.05, TARGET_LENGTH=2024, temp_shuffle=shuf, legs=True)
+    #             print(f"Activity significance: {ac}, Should be {not shuf}")
+    #             print(f"Control significance: {ct}, Should be False")
+    #             print('Success:', ac == (not shuf) and ct is False)
+    #             if shuf:
+    #                 fp += ac
+    #                 tn += not ac
+    #             else:
+    #                 tp += ac
+    #                 fn += not ac
+    #             print("\n" + "="*50 + "\n")
+    #     except (FileNotFoundError, RuntimeError, ValueError) as e:
+    #         print(f"File not found for subject {subject}: {e}")
+            
+    # print(f"True Positives: {tp}, False Positives: {fp}, False Negatives: {fn}, True Negatives: {tn}")
