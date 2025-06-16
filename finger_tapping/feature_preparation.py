@@ -27,9 +27,9 @@ def reshape_activity(epoch: list, min_bound: int) -> np.ndarray:
     """Limit epochs to min bound, reshape data to channels x merged_epochs """
     epoch_data = epoch[:min_bound,:,:]
     n_epoch, n_channels, n_epoch_size = epoch_data.shape
-    epoch_data_reshaped = epoch_data.reshape(n_channels, n_epoch * n_epoch_size)
+    epoch_data_reshaped = epoch_data.swapaxes(1,2).reshape(n_epoch * n_epoch_size, n_channels)
     
-    return epoch_data_reshaped.T
+    return epoch_data_reshaped
 
 def create_labels(labels: list[str], lenght: int) -> np.ndarray:
     """ Creates labels for data"""
