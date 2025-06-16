@@ -2,7 +2,7 @@ import numpy as np
 from sklearn.decomposition import PCA
 import mne
 from sklearn.decomposition import FastICA
-from mne import EpochsArray
+from mne import EpochsArray, pick_types
 
 def reconstruct_epochs_with_pca(epochs: mne.Epochs, n_components: int = 1) -> mne.Epochs:
     data = epochs.get_data()  # (n_epochs, n_channels, n_times)
@@ -83,8 +83,8 @@ def plot_everything(new_epochs):
 # usage:
 from finger_tapping.preprocessing import simple_pipeline
 epochs = simple_pipeline(subject="01")
-pca_epochs = reconstruct_epochs_with_pca(epochs, 1)
-ica_epochs = reconstruct_epochs_with_ica(epochs, 1)
+pca_epochs = reconstruct_epochs_with_pca(epochs, 2)
+ica_epochs = reconstruct_epochs_with_ica(epochs, 3)
 
   
 # plot_everything(epochs)
@@ -102,8 +102,38 @@ def plot_all(label="Control", epochs=None):
     for x in range(len(epochs[label])):
         if x==0 : print(f"######### {label} ##############")
         # print(epochs[label].events[:,2][x])
-        plot_epoch_topomap(epochs[label], x, np.arange(4, 11, 1.0))
+        plot_epoch_topomap(epochs[label], x, np.arange(2, 8, 1.0))
         
 # plot_all('Control', pca_epochs)
 # plot_all('Tapping/Left', pca_epochs)
 # plot_all('Tapping/Right', pca_epochs)
+
+
+import numpy as np
+from sklearn.mixture import GaussianMixture
+from sklearn.preprocessing import StandardScaler
+import pandas as pd
+
+# Step 1: Extract data from epochs (n_epochs, n_channels, n_times)
+# ica_epochs.copy().average(picks="hbo")
+hbo_picks = pick_types(epochs.info, fnirs='hbo')
+data = pca_epochs.copy().pick(hbo_picks).get_data()
+data = data[:,:,16:55]
+n_epochs, n_channels, n_times = data.shape
+
+# Step 2: Flatten each epoch into a feature vector
+X = data.reshape(n_epochs, -1)   # shape: (n_epochs, n_channels * n_times)
+
+# Step 3: Standardize the data
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# Step 4: Fit GMM with 2 clusters
+gmm = GaussianMixture(n_components=3, covariance_type='full', random_state=42)
+cluster_labels = gmm.fit_predict(X_scaled)
+
+
+data2 = {"Clusters_labels": cluster_labels, "True_labels" : pca_epochs.events[:,2]}
+df = pd.DataFrame(data2)
+
+df.groupby(["Clusters_labels",'True_labels']).size()
