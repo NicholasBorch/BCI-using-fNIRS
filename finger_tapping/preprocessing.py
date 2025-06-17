@@ -52,7 +52,7 @@ def set_annotations(raw_intensity: Raw, stimulus_duration: Optional[float] = Non
         trigger_code = TRIGGER_CODE
         
     raw_intensity.annotations.set_durations(stimulus_duration, verbose=False)
-    raw_intensity.annotations.rename(RENAME_DICT)
+    # raw_intensity.annotations.rename(RENAME_DICT)
     unwanted = np.nonzero(raw_intensity.annotations.description == trigger_code)
     raw_intensity.annotations.delete(unwanted)
     return raw_intensity
