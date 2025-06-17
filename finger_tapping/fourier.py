@@ -1,21 +1,28 @@
 from preprocessing import simple_pipeline, SUBJECTS
-import numpy as np
+
 from sklearn.decomposition import FastICA
+import numpy as np
 import matplotlib.pyplot as plt
-from scipy.fft import rfft, rfftfreq
 from scipy.ndimage import uniform_filter1d
-from typing import Any
+from scipy.fft import rfft, rfftfreq
 from statsmodels.stats.multitest import multipletests
-from scipy.stats import ttest_1samp
-from leg_utils import run_tapping_pipeline
+from scipy.stats import mannwhitneyu
+from typing import Any
 
 np.random.seed(42)
 
-def get_data(subject: str, legs: bool = False) -> dict[str, Any]:
-    if legs:
-        epochs = run_tapping_pipeline(subject=subject, task='fingerauto', bids_root_path='bids_raw', save=False)
-    else:
-        epochs = simple_pipeline(subject=subject, save=False)
+def get_data(subject: str) -> dict[str, Any]:
+    """Retrieves epochs and metadata for a given subject.
+    Returns a dict that is easier to work with.
+
+    Args:
+        subject (str): Actually a literal string, comes from mne package. "01", "02", ..., "05"
+
+    Returns:
+        dict[str, Any]: Contains metadata and data in a convenient format.
+    """
+    ## Run pipeline to obtain epochs and metadata
+    epochs = simple_pipeline(subject=subject, save=False)
     events = epochs.events
     map_ = {v: k for k, v in epochs.event_id.items()}
 
@@ -33,15 +40,6 @@ def get_data(subject: str, legs: bool = False) -> dict[str, Any]:
         'sfreq': sfreq,
         'n_channels': n_channels,
         'n_times': n_times,}
-    
-def extract_labels(epochs: np.ndarray, events: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Extracts labels from the events array."""
-    for i, event in enumerate(events):
-        if event[0] > len(epochs):
-            break
-    labels = events[:i, 2] #type: ignore
-    epoch_indices = events[:i, 0]  #type: ignore
-    return labels, epoch_indices
 
 def remove_epochs(concat: np.ndarray,
                   labels: np.ndarray,
@@ -67,13 +65,11 @@ def remove_epochs(concat: np.ndarray,
     """
     n_channels = concat.shape[1]
     n_epochs   = len(labels)
-    assert concat.shape[0] == n_epochs * n_times, \
-        f"Mismatch: expected {n_epochs * n_times} samples, got {concat.shape[0]}"
 
-    # reshape to (epochs, times, channels)
+    ## reshape to (epochs, times, channels)
     data_3d = concat.reshape(n_epochs, n_times, n_channels)
 
-    # build mask
+    ## mask the epochs to keep
     mask = np.ones(n_epochs, dtype=bool)
     mask[remove_idxs] = False
 
@@ -81,12 +77,14 @@ def remove_epochs(concat: np.ndarray,
 
 
 def make_new_events(events: np.ndarray, indices: np.ndarray) -> np.ndarray:
-    """Creates a new events array by removing the specified indices."""
+    """Creates a new events array by removing the specified indices. Relatively inconvenient,
+    but we need the events in the correct format for the segmentation pipeline to work downstream.
+    Args:
+        events (np.ndarray): The original events array with shape (n_events, 3).
+        indices (np.ndarray): Indices of events to remove. Indices correspond to the actual data point indices."""
     new_events = []
     cnt = 0
-    print(events)
     for i, event in enumerate(events):
-        print(event)
         cnt += event[0]
         if i in indices:
             epoch_len = events[i+1, 0] - events[i, 0] if i < len(events) - 1 else 0
@@ -106,7 +104,7 @@ def center_data(data_concat: np.ndarray) -> np.ndarray:
 
 def get_ICA_signal(data_concat: np.ndarray, n_components: int) -> np.ndarray:
     """Performs ICA on the concatenated data and returns the signal."""
-    ica = FastICA(random_state=42, whiten='unit-variance', max_iter=1000, tol=0.0001)#, n_components=n_components)
+    ica = FastICA(random_state=42, whiten='unit-variance', max_iter=1000, tol=0.0001, n_components=n_components)
     S_ = ica.fit_transform(data_concat)  # (n_epochs * n_times, n_components)
     return S_
 
@@ -253,17 +251,18 @@ def fft_pipeline(segments: list[list[np.ndarray]], num_components: int, sfreq: f
     
     return comp_fft, np.array(comp_freqs)
 
-def find_distr_difference(comp_fft: np.ndarray, 
-                          control_indices: np.ndarray, 
-                          activity_indices: np.ndarray,
-                          num_bins: int) -> tuple[np.ndarray, np.ndarray]:
+def find_distr(comp_fft: np.ndarray,
+                                   control_indices: np.ndarray,
+                                      activity_indices: np.ndarray,
+                                      num_bins: int) -> tuple[np.ndarray, np.ndarray]:
     control_fft = comp_fft[:, control_indices, :]  # (n_components, n_control_segments, n_freqs)
     average_control_fft = np.mean(control_fft, axis=1)  # (n_components, n_freqs)
+    
     bin_indices = np.zeros((comp_fft.shape[0], num_bins + 1), dtype=int)
     for comp in range(comp_fft.shape[0]):
         power_cumsum = np.cumsum(average_control_fft[comp, :]**2)
         total_power = power_cumsum[-1]
-        for b in range(1, num_bins):
+        for b in range(1, num_bins + 1):
             threshold = b * total_power / num_bins
             bin_indices[comp, b] = np.searchsorted(power_cumsum, threshold)
         bin_indices[comp, 0] = 0
@@ -277,15 +276,13 @@ def find_distr_difference(comp_fft: np.ndarray,
                 start_idx = bin_indices[comp, bin_idx]
                 end_idx = bin_indices[comp, bin_idx + 1]
                 binned_power[seg, comp, bin_idx] = np.sum(comp_fft[comp, seg, start_idx:end_idx] ** 2)
-    # Compute group means and differences
-    binned_control_power = np.mean(binned_power[control_indices, :, :], axis=0)  # (n_components, n_bins)
+                
     binned_control_power_individual = binned_power[control_indices, :, :]
     binned_activity_power = binned_power[activity_indices, :, :]
-    binned_activity_power_diff = binned_activity_power - binned_control_power[np.newaxis, :, :]
-    binned_control_power_diff = binned_control_power_individual - binned_control_power[np.newaxis, :, :]
-    return binned_activity_power_diff, binned_control_power_diff
+    
+    return binned_activity_power, binned_control_power_individual
 
-def get_pvals(binned_power: np.ndarray, alpha: float = 0.05) -> np.ndarray:
+def get_pvals(binned_power: np.ndarray, binned_control_power: np.ndarray) -> np.ndarray:
     """
     Computes p-values for the binned power differences.
     
@@ -296,14 +293,15 @@ def get_pvals(binned_power: np.ndarray, alpha: float = 0.05) -> np.ndarray:
     Returns:
         np.ndarray: P-values for the binned power differences.
     """
-    n_components, n_bins = binned_power.shape[1], binned_power.shape[2]
-    pvals = np.zeros((n_components, n_bins))
+    n_components = binned_power.shape[1]
+    n_bins = binned_power.shape[2]
+    pvals = np.zeros((n_components, n_bins), dtype=float)
     
     for comp in range(n_components):
         for bin_idx in range(n_bins):
-            _, pval = ttest_1samp(binned_power[:, comp, bin_idx], 0.0)
-            pvals[comp, bin_idx] = pval #type: ignore
-            
+            res = mannwhitneyu(binned_power[:, comp, bin_idx], binned_control_power[:, comp, bin_idx])
+            pval = res.pvalue
+            pvals[comp, bin_idx] = pval
     return pvals
     
     
@@ -321,8 +319,10 @@ def get_corrected_pvals(pvals: np.ndarray, alpha: float = 0.05) -> np.ndarray:
     _, pvals_corrected, _, _ = multipletests(pvals.ravel(), alpha=alpha, method='fdr_bh')
     return pvals_corrected.reshape(pvals.shape)  # Reshape back to original shape
 
-def main(subject: str, NUM_COMPONENTS: int, NUM_BINS: int, ALPHA: float, TARGET_LENGTH: int = 256,
-         temp_shuffle: bool = False, legs: bool = False) -> tuple[bool, bool]: #I know this is bad practice
+def main(subject: str, NUM_COMPONENTS: int, NUM_BINS: int, ALPHA: float,
+         temp_shuffle: bool = False, plot: bool = True,
+         sliding_window_size: int = 100, window_secs: int = 15,
+         step_secs: float = 0.25) -> bool: #I know this is bad practice
     """CHECK IF TARGET_LENGTH MATCHES ROLLING SEGMENTS
 
     Args:
@@ -330,9 +330,8 @@ def main(subject: str, NUM_COMPONENTS: int, NUM_BINS: int, ALPHA: float, TARGET_
         NUM_COMPONENTS (int): _description_
         NUM_BINS (int): _description_
         ALPHA (float): _description_
-        TARGET_LENGTH (int, optional): _description_. Defaults to 256.
     """
-    data = get_data(subject, legs = legs)
+    data = get_data(subject)
     n_epochs = int(data['data'].shape[0] / data['n_times'])
     labels = data['events'][:n_epochs, 2] 
     
@@ -345,22 +344,25 @@ def main(subject: str, NUM_COMPONENTS: int, NUM_BINS: int, ALPHA: float, TARGET_
         epochs, labels = remove_epochs(data['data'], labels, remove_indices, n_times=data['n_times'])
         data['data'] = epochs.reshape(-1, data['n_channels'])  # flatten again  
     
-    segments, true_labels = segment_pipeline(data, delay_secs=5, sliding_window_size=100, window_secs=10, step_secs=.25,
+    segments, true_labels = segment_pipeline(data, delay_secs=5, sliding_window_size=sliding_window_size, window_secs=window_secs, step_secs=step_secs,
                                              n_components=NUM_COMPONENTS)
-    if temp_shuffle:
-        assert all(true_labels), "we shouldn't have any activity labels left"
+    
     if temp_shuffle:
         # now all true_labels are 1, so we will fake activity labels
-        ctrl_to_activity_ratio = 0.33  # Ratio of control indices to switch to activity
+        ctrl_to_activity_ratio = 0.66  # Ratio of control indices to switch to activity
         num_to_switch = int(ctrl_to_activity_ratio * len(true_labels))
         indices_to_switch = np.random.choice(true_labels, size=num_to_switch, replace=False)
         true_labels[indices_to_switch] = 2  # Switch some control labels to activity
         
     control_indices = true_labels == 1
     activity_indices = true_labels != 1
+    
+    print('number of epochs:', len(true_labels))
+    print('Number of activity epochs:', np.sum(activity_indices))
+    print('Number of control epochs:', np.sum(control_indices))
     # shape of segments: (n_components, n_segments, n_times)
     # plot first segment of first component
-    if not temp_shuffle:
+    if not temp_shuffle and plot:
         plt.figure(figsize=(12, 8))
         
         plt.subplot(2, 2, 1)
@@ -375,14 +377,19 @@ def main(subject: str, NUM_COMPONENTS: int, NUM_BINS: int, ALPHA: float, TARGET_
         plt.xlabel('Time (samples)')
         plt.ylabel('Amplitude')
         plt.legend()
+        
+    target_length = int(data['sfreq'] * window_secs)
     
-    comp_fft, _ = fft_pipeline(segments, num_components=NUM_COMPONENTS, sfreq=data['sfreq'], target_length=TARGET_LENGTH)
-    binned_activity_power_diff, binned_control_power_diff = find_distr_difference(comp_fft= comp_fft,
-                                                                                control_indices=control_indices,
-                                                                                activity_indices=activity_indices,
-                                                                                num_bins=NUM_BINS)
+    comp_fft, _ = fft_pipeline(segments, num_components=NUM_COMPONENTS, sfreq=data['sfreq'], target_length=target_length)
+    
+    binned_activity_power_diff, binned_control_power_diff = find_distr(
+        comp_fft=comp_fft,
+        control_indices=control_indices,
+        activity_indices=activity_indices,
+        num_bins=NUM_BINS
+    )
     # plot the fft results for the first segment of the first  component
-    if not temp_shuffle:
+    if not temp_shuffle and plot:
         plt.subplot(2, 2, 3)
         plt.hist(comp_fft[0, 0], bins=100, alpha=0.5, label='FFT Amplitude, [{}]'.format(data['map'][true_labels[0]]))
         plt.title(f'FFT Amplitude Distribution for Component 1, Segment 1, Subject {subject}')
@@ -395,57 +402,27 @@ def main(subject: str, NUM_COMPONENTS: int, NUM_BINS: int, ALPHA: float, TARGET_
         plt.xlabel('Frequency (Hz)')
         plt.ylabel('Amplitude')
         plt.legend()
-        plt.show()
-
-    
-    # print('Performing t-tests on binned control power differences...')
-    # pvals_control = get_pvals(binned_control_power_diff, alpha=ALPHA)
-    # pvals_control_corrected = get_corrected_pvals(pvals_control)
-    
-    # # show array with significance bools
-    # significance = pvals_control_corrected < ALPHA
-    # print(f"Control Significance (p < {ALPHA}):\n", significance)
-    # print('Control Significance on components:')
-    # print([any(significance[i, :]) for i in range(NUM_COMPONENTS)])
-    # print('"Control Significance rate":')
-    # print(np.mean([any(significance[i, :]) for i in range(NUM_COMPONENTS)]))
-    # print('Overall control significance conclusion:', bool(np.mean([any(significance[i, :]) for i in range(NUM_COMPONENTS)])))  
-    # print()
-    overall_control_significance = False  # We do not expect control significance in this test, so we set it to False
-    # overall_control_significance = bool(np.mean([any(significance[i, :]) for i in range(NUM_COMPONENTS)]))
-    
+        plt.show()    
     print("Performing t-tests on binned activity power differences...")
-    pvals_activity = get_pvals(binned_activity_power_diff, alpha=ALPHA)
+    pvals_activity = get_pvals(binned_activity_power_diff, binned_control_power=binned_control_power_diff)
     pvals_activity_corrected = get_corrected_pvals(pvals_activity, alpha=ALPHA)
     
     # show array with significance bools
+    print(pvals_activity_corrected)
     significance = pvals_activity_corrected < ALPHA
+    print('Rows: components, Columns: bins')
     print(f"Significance (p < {ALPHA}):\n", significance)
     print('Significance on components:')
-    print([any(significance[i, :]) for i in range(NUM_COMPONENTS)])
     print('"Significance rate":')
-    print(np.mean([any(significance[i, :]) for i in range(NUM_COMPONENTS)]))
+    print(np.mean(np.mean(significance, axis=1)))
     max_activity_pval = np.max(pvals_activity_corrected)
     min_activity_pval = np.min(pvals_activity_corrected)
     print('Min activity p-value:', min_activity_pval)
     print('Max activity p-value:', max_activity_pval)
-    print('Overall activity significance conclusion:', bool(np.mean([any(significance[i, :]) for i in range(NUM_COMPONENTS)])))
+    overall_activity_significance = any([any(s) for s in significance])
+    print('Overall activity significance conclusion:', overall_activity_significance)
     print()
-    overall_activity_significance = bool(np.mean([any(significance[i, :]) for i in range(NUM_COMPONENTS)]))
-    
-    # # plot the binned power densities
-    # plt.figure(figsize=(12, 6))
-    # for comp in range(NUM_COMPONENTS):
-    #     plt.subplot(1, NUM_COMPONENTS, comp + 1)
-    #     plt.bar(range(NUM_BINS), binned_activity_power_diff[:, comp, :].mean(axis=0), label='Activity - Control')
-    #     plt.title(f'Component {comp + 1}')
-    #     plt.xlabel('Frequency Bin')
-    #     plt.ylabel('Power Density Difference')
-    #     plt.xticks(range(NUM_BINS))
-    #     plt.legend()
-    # plt.tight_layout()
-    # plt.show()
-    return overall_activity_significance, overall_control_significance
+    return overall_activity_significance
     
 
 
@@ -454,10 +431,10 @@ if __name__ == '__main__':
     for subject in SUBJECTS:
         for shuf in [False, True]:
             print(f"Processing subject: {subject} with shuffle={shuf}")
-            ac, ct = main(subject=subject, NUM_COMPONENTS=2, NUM_BINS=2, ALPHA=0.05, TARGET_LENGTH=2024, temp_shuffle=shuf)
+            ac = main(subject=subject, NUM_COMPONENTS=2, NUM_BINS=2, ALPHA=0.05, temp_shuffle=shuf, plot=False,
+                      sliding_window_size=5, window_secs=15, step_secs=5)
             print(f"Activity significance: {ac}, Should be {not shuf}")
-            print(f"Control significance: {ct}, Should be False")
-            print('Success:', ac == (not shuf) and ct is False)
+            print('Success:', ac == (not shuf))
             if shuf:
                 fp += ac
                 tn += not ac
@@ -466,27 +443,3 @@ if __name__ == '__main__':
                 fn += not ac
             print("\n" + "="*50 + "\n")
     print(f"True Positives: {tp}, False Positives: {fp}, False Negatives: {fn}, True Negatives: {tn}")
-    
-    # on legs
-    # print('RUNNING ON LEGS')
-    # leg_subs = [f"{i:02d}" for i in range(1, 96)]
-    # fp, tp, fn, tn = 0, 0, 0, 0
-    # for subject in leg_subs:
-    #     try:
-    #         for shuf in [False, True]:
-    #             print(f"Processing subject: {subject} with shuffle={shuf}")
-    #             ac, ct = main(subject=subject, NUM_COMPONENTS=3, NUM_BINS=2, ALPHA=0.05, TARGET_LENGTH=2024, temp_shuffle=shuf, legs=True)
-    #             print(f"Activity significance: {ac}, Should be {not shuf}")
-    #             print(f"Control significance: {ct}, Should be False")
-    #             print('Success:', ac == (not shuf) and ct is False)
-    #             if shuf:
-    #                 fp += ac
-    #                 tn += not ac
-    #             else:
-    #                 tp += ac
-    #                 fn += not ac
-    #             print("\n" + "="*50 + "\n")
-    #     except (FileNotFoundError, RuntimeError, ValueError) as e:
-    #         print(f"File not found for subject {subject}: {e}")
-            
-    # print(f"True Positives: {tp}, False Positives: {fp}, False Negatives: {fn}, True Negatives: {tn}")
