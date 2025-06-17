@@ -9,6 +9,8 @@ from statsmodels.stats.multitest import multipletests
 from scipy.stats import ttest_1samp
 from leg_utils import run_tapping_pipeline
 
+np.random.seed(42)
+
 def get_data(subject: str, legs: bool = False) -> dict[str, Any]:
     if legs:
         epochs = run_tapping_pipeline(subject=subject, task='fingerauto', bids_root_path='bids_raw', save=False)
@@ -29,7 +31,70 @@ def get_data(subject: str, legs: bool = False) -> dict[str, Any]:
         'events': events,
         'map': map_,
         'sfreq': sfreq,
-        'n_channels': n_channels,}
+        'n_channels': n_channels,
+        'n_times': n_times,}
+    
+def extract_labels(epochs: np.ndarray, events: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Extracts labels from the events array."""
+    for i, event in enumerate(events):
+        if event[0] > len(epochs):
+            break
+    labels = events[:i, 2] #type: ignore
+    epoch_indices = events[:i, 0]  #type: ignore
+    return labels, epoch_indices
+
+def remove_epochs(concat: np.ndarray,
+                  labels: np.ndarray,
+                  remove_idxs: np.ndarray,
+                  n_times: int) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Parameters
+    ----------
+    concat : ndarray, shape (n_epochs * n_times, n_channels)
+        The time-concatenated recording returned by `get_data`.
+    labels : ndarray, shape (n_epochs,)
+        One label per epoch.
+    remove_idxs : 1-D ndarray of int
+        Which epochs to discard (0-based).
+    n_times : int
+        Number of time points per epoch (can be taken straight from
+        `epochs.get_data().shape[-1]`).
+
+    Returns
+    -------
+    new_epochs : ndarray, shape (n_kept, n_times, n_channels)
+    new_labels : ndarray, shape (n_kept,)
+    """
+    n_channels = concat.shape[1]
+    n_epochs   = len(labels)
+    assert concat.shape[0] == n_epochs * n_times, \
+        f"Mismatch: expected {n_epochs * n_times} samples, got {concat.shape[0]}"
+
+    # reshape to (epochs, times, channels)
+    data_3d = concat.reshape(n_epochs, n_times, n_channels)
+
+    # build mask
+    mask = np.ones(n_epochs, dtype=bool)
+    mask[remove_idxs] = False
+
+    return data_3d[mask], labels[mask]
+
+
+def make_new_events(events: np.ndarray, indices: np.ndarray) -> np.ndarray:
+    """Creates a new events array by removing the specified indices."""
+    new_events = []
+    cnt = 0
+    print(events)
+    for i, event in enumerate(events):
+        print(event)
+        cnt += event[0]
+        if i in indices:
+            epoch_len = events[i+1, 0] - events[i, 0] if i < len(events) - 1 else 0
+            cnt -= epoch_len
+        else:
+            new_events.append([cnt, event[1], event[2]])
+    return np.array(new_events)
+    
     
 def sliding_window(data: np.ndarray, window_size: int) -> np.ndarray:
     """Applies a sliding window to smooth the data."""
@@ -160,8 +225,11 @@ def segment_pipeline(data: dict[str, Any],
                     sliding_window_size: int = 1,
                     window_secs: float = 15.0,
                     step_secs: float = 1.0) -> tuple[list[list[np.ndarray]], np.ndarray]:
+
     windowed_data = sliding_window(data['data'], window_size=sliding_window_size)
+        
     centered_data = center_data(windowed_data)
+    
     ica_signal = get_ICA_signal(centered_data, n_components=n_components)
     segments, true_labels = get_segments_rolling(ica_signal, data['events'], sfreq=data['sfreq'],
                                                  delay_secs=delay_secs, window_secs=window_secs, step_secs=step_secs)
@@ -236,7 +304,7 @@ def get_pvals(binned_power: np.ndarray, alpha: float = 0.05) -> np.ndarray:
             _, pval = ttest_1samp(binned_power[:, comp, bin_idx], 0.0)
             pvals[comp, bin_idx] = pval #type: ignore
             
-    return pvals#.ravel()
+    return pvals
     
     
 def get_corrected_pvals(pvals: np.ndarray, alpha: float = 0.05) -> np.ndarray:
@@ -265,35 +333,69 @@ def main(subject: str, NUM_COMPONENTS: int, NUM_BINS: int, ALPHA: float, TARGET_
         TARGET_LENGTH (int, optional): _description_. Defaults to 256.
     """
     data = get_data(subject, legs = legs)
+    n_epochs = int(data['data'].shape[0] / data['n_times'])
+    labels = data['events'][:n_epochs, 2] 
+    
+    if temp_shuffle:        
+        remove_indices = labels != 1
+    else:
+        remove_indices = np.array([])
+    
+    if temp_shuffle:
+        epochs, labels = remove_epochs(data['data'], labels, remove_indices, n_times=data['n_times'])
+        data['data'] = epochs.reshape(-1, data['n_channels'])  # flatten again  
+    
     segments, true_labels = segment_pipeline(data, delay_secs=5, sliding_window_size=100, window_secs=10, step_secs=.25,
                                              n_components=NUM_COMPONENTS)
-    
-    if legs:
-        control_indices = true_labels == 2
-        activity_indices = true_labels != 2
-    else:
-        control_indices = true_labels == 1
-        activity_indices = true_labels != 1
-        
-    ## For "testing" purposes, we will move some control indices to activity indices   
     if temp_shuffle:
-        ctrl_to_activity_ratio = 0.66  # Ratio of control indices to switch to activity
-        activity_indices[:] = False
-        num_to_switch = int(ctrl_to_activity_ratio * np.sum(control_indices))
-        indices_to_switch = np.random.choice(np.where(control_indices)[0], size=num_to_switch, replace=False)
-        activity_indices[indices_to_switch] = True
-        control_indices[indices_to_switch] = False
-    print(f"Control indices: {np.sum(control_indices)}, Activity indices: {np.sum(activity_indices)}")  
-    print(f"Total segments: {len(segments)}")  
+        assert all(true_labels), "we shouldn't have any activity labels left"
+    if temp_shuffle:
+        # now all true_labels are 1, so we will fake activity labels
+        ctrl_to_activity_ratio = 0.33  # Ratio of control indices to switch to activity
+        num_to_switch = int(ctrl_to_activity_ratio * len(true_labels))
+        indices_to_switch = np.random.choice(true_labels, size=num_to_switch, replace=False)
+        true_labels[indices_to_switch] = 2  # Switch some control labels to activity
+        
+    control_indices = true_labels == 1
+    activity_indices = true_labels != 1
+    # shape of segments: (n_components, n_segments, n_times)
+    # plot first segment of first component
+    if not temp_shuffle:
+        plt.figure(figsize=(12, 8))
+        
+        plt.subplot(2, 2, 1)
+        plt.plot(segments[0][0], label=f'Component 1, Segment 1, [{data['map'][true_labels[0]]}]')
+        plt.title(f'Segment of Component 1 for Subject {subject}')
+        plt.xlabel('Time (samples)')
+        plt.ylabel('Amplitude')
+        plt.legend()
+        plt.subplot(2, 2, 2)
+        plt.plot(segments[1][0], label=f'Component 2, Segment 1, [{data['map'][true_labels[0]]}]')
+        plt.title(f'Segment of Component 2 for Subject {subject}')
+        plt.xlabel('Time (samples)')
+        plt.ylabel('Amplitude')
+        plt.legend()
     
-    print('APPLYING FFT')
     comp_fft, _ = fft_pipeline(segments, num_components=NUM_COMPONENTS, sfreq=data['sfreq'], target_length=TARGET_LENGTH)
-    
-    print('FINDING DISTRIBUTION DIFFERENCES')
     binned_activity_power_diff, binned_control_power_diff = find_distr_difference(comp_fft= comp_fft,
                                                                                 control_indices=control_indices,
                                                                                 activity_indices=activity_indices,
                                                                                 num_bins=NUM_BINS)
+    # plot the fft results for the first segment of the first  component
+    if not temp_shuffle:
+        plt.subplot(2, 2, 3)
+        plt.hist(comp_fft[0, 0], bins=100, alpha=0.5, label='FFT Amplitude, [{}]'.format(data['map'][true_labels[0]]))
+        plt.title(f'FFT Amplitude Distribution for Component 1, Segment 1, Subject {subject}')
+        plt.xlabel('Frequency (Hz)')
+        plt.ylabel('Amplitude')
+        plt.legend()
+        plt.subplot(2, 2, 4)
+        plt.hist(comp_fft[1, 0], bins=100, alpha=0.5, label='FFT Amplitude, [{}]'.format(data['map'][true_labels[0]]))
+        plt.title(f'FFT Amplitude Distribution for Component 2, Segment 1, Subject {subject}')
+        plt.xlabel('Frequency (Hz)')
+        plt.ylabel('Amplitude')
+        plt.legend()
+        plt.show()
 
     
     # print('Performing t-tests on binned control power differences...')
@@ -323,6 +425,10 @@ def main(subject: str, NUM_COMPONENTS: int, NUM_BINS: int, ALPHA: float, TARGET_
     print([any(significance[i, :]) for i in range(NUM_COMPONENTS)])
     print('"Significance rate":')
     print(np.mean([any(significance[i, :]) for i in range(NUM_COMPONENTS)]))
+    max_activity_pval = np.max(pvals_activity_corrected)
+    min_activity_pval = np.min(pvals_activity_corrected)
+    print('Min activity p-value:', min_activity_pval)
+    print('Max activity p-value:', max_activity_pval)
     print('Overall activity significance conclusion:', bool(np.mean([any(significance[i, :]) for i in range(NUM_COMPONENTS)])))
     print()
     overall_activity_significance = bool(np.mean([any(significance[i, :]) for i in range(NUM_COMPONENTS)]))
