@@ -8,6 +8,8 @@ from scipy.fft import rfft, rfftfreq
 from statsmodels.stats.multitest import multipletests
 from scipy.stats import mannwhitneyu
 from typing import Any
+from typing import Generator
+from colorama import Fore
 
 np.random.seed(42)
 
@@ -39,7 +41,8 @@ def get_data(subject: str) -> dict[str, Any]:
         'map': map_,
         'sfreq': sfreq,
         'n_channels': n_channels,
-        'n_times': n_times,}
+        'n_times': n_times,
+        'subject': subject,}
 
 def remove_epochs(concat: np.ndarray,
                   labels: np.ndarray,
@@ -104,7 +107,7 @@ def center_data(data_concat: np.ndarray) -> np.ndarray:
 
 def get_ICA_signal(data_concat: np.ndarray, n_components: int) -> np.ndarray:
     """Performs ICA on the concatenated data and returns the signal."""
-    ica = FastICA(random_state=42, whiten='unit-variance', max_iter=1000, tol=0.0001, n_components=n_components)
+    ica = FastICA(random_state=42, whiten='unit-variance', max_iter=1000, tol=0.0001)#, n_components=n_components)
     S_ = ica.fit_transform(data_concat)  # (n_epochs * n_times, n_components)
     return S_
 
@@ -319,61 +322,77 @@ def get_corrected_pvals(pvals: np.ndarray, alpha: float = 0.05) -> np.ndarray:
     _, pvals_corrected, _, _ = multipletests(pvals.ravel(), alpha=alpha, method='fdr_bh')
     return pvals_corrected.reshape(pvals.shape)  # Reshape back to original shape
 
-def main(subject: str, NUM_COMPONENTS: int, NUM_BINS: int, ALPHA: float,
-         temp_shuffle: bool = False, plot: bool = True,
+def pre_analysis(subject: str, NUM_COMPONENTS: int,
+         remove_activity: bool = False,
          sliding_window_size: int = 100, window_secs: int = 15,
-         step_secs: float = 0.25) -> bool: #I know this is bad practice
-    """CHECK IF TARGET_LENGTH MATCHES ROLLING SEGMENTS
-
-    Args:
-        subject (str): _description_
-        NUM_COMPONENTS (int): _description_
-        NUM_BINS (int): _description_
-        ALPHA (float): _description_
+         step_secs: float = 0.25) -> tuple[list[list[np.ndarray]], np.ndarray, dict[str, Any]]:
+    """   
+    
     """
     data = get_data(subject)
     n_epochs = int(data['data'].shape[0] / data['n_times'])
     labels = data['events'][:n_epochs, 2] 
     
-    if temp_shuffle:        
+    if remove_activity:        
         remove_indices = labels != 1
     else:
         remove_indices = np.array([])
     
-    if temp_shuffle:
+    if remove_activity:
         epochs, labels = remove_epochs(data['data'], labels, remove_indices, n_times=data['n_times'])
         data['data'] = epochs.reshape(-1, data['n_channels'])  # flatten again  
     
     segments, true_labels = segment_pipeline(data, delay_secs=5, sliding_window_size=sliding_window_size, window_secs=window_secs, step_secs=step_secs,
                                              n_components=NUM_COMPONENTS)
     
-    if temp_shuffle:
-        # now all true_labels are 1, so we will fake activity labels
-        ctrl_to_activity_ratio = 0.66  # Ratio of control indices to switch to activity
-        num_to_switch = int(ctrl_to_activity_ratio * len(true_labels))
-        indices_to_switch = np.random.choice(true_labels, size=num_to_switch, replace=False)
-        true_labels[indices_to_switch] = 2  # Switch some control labels to activity
-        
-    control_indices = true_labels == 1
-    activity_indices = true_labels != 1
+    return segments, true_labels, data
+
+def switch_to_activity_labels(true_labels: np.ndarray, k: int) -> Generator[np.ndarray, None, None]:
+    """
+    Switches the true labels to activity labels.
+    Returns a generator that yields the activity labels for each segment.
     
-    print('number of epochs:', len(true_labels))
+    Args:
+        true_labels (np.ndarray): The true labels for each segment.
+        k (int): The number of segments to yield.
+    
+    Yields:
+        np.ndarray: The activity labels for each segment.
+    """
+    switch_per_cross_val: int = len(true_labels) // k
+    previously_switched = np.ones_like(true_labels, dtype=bool)
+    for i in range(k):
+        to_switch = np.random.choice(np.where(previously_switched == 1)[0], switch_per_cross_val, replace=False)
+        switched_labels = np.copy(true_labels)
+        switched_labels[to_switch] = 2  # Switch to activity label
+        previously_switched[to_switch] = False
+        yield switched_labels
+        
+
+def run_analysis(data: dict[str, Any], segments: list[list[np.ndarray]], labels: np.ndarray, 
+                 window_secs: float, NUM_COMPONENTS: int, NUM_BINS: int, ALPHA: float,
+                 plot: bool = False) -> bool:
+    
+    control_indices = labels == 1
+    activity_indices = labels != 1
+    
+    print('number of epochs:', len(labels))
     print('Number of activity epochs:', np.sum(activity_indices))
     print('Number of control epochs:', np.sum(control_indices))
     # shape of segments: (n_components, n_segments, n_times)
     # plot first segment of first component
-    if not temp_shuffle and plot:
+    if plot:
         plt.figure(figsize=(12, 8))
         
         plt.subplot(2, 2, 1)
-        plt.plot(segments[0][0], label=f'Component 1, Segment 1, [{data['map'][true_labels[0]]}]')
-        plt.title(f'Segment of Component 1 for Subject {subject}')
+        plt.plot(segments[0][0], label=f'Component 1, Segment 1, [{data['map'][labels[0]]}]')
+        plt.title(f'Segment of Component 1 for Subject {data['subject']}')
         plt.xlabel('Time (samples)')
         plt.ylabel('Amplitude')
         plt.legend()
         plt.subplot(2, 2, 2)
-        plt.plot(segments[1][0], label=f'Component 2, Segment 1, [{data['map'][true_labels[0]]}]')
-        plt.title(f'Segment of Component 2 for Subject {subject}')
+        plt.plot(segments[1][0], label=f'Component 2, Segment 1, [{data['map'][labels[0]]}]')
+        plt.title(f'Segment of Component 2 for Subject {data['subject']}')
         plt.xlabel('Time (samples)')
         plt.ylabel('Amplitude')
         plt.legend()
@@ -389,16 +408,16 @@ def main(subject: str, NUM_COMPONENTS: int, NUM_BINS: int, ALPHA: float,
         num_bins=NUM_BINS
     )
     # plot the fft results for the first segment of the first  component
-    if not temp_shuffle and plot:
+    if plot:
         plt.subplot(2, 2, 3)
-        plt.hist(comp_fft[0, 0], bins=100, alpha=0.5, label='FFT Amplitude, [{}]'.format(data['map'][true_labels[0]]))
-        plt.title(f'FFT Amplitude Distribution for Component 1, Segment 1, Subject {subject}')
+        plt.hist(comp_fft[0, 0], bins=100, alpha=0.5, label='FFT Amplitude, [{}]'.format(data['map'][labels[0]]))
+        plt.title(f'FFT Amplitude Distribution for Component 1, Segment 1, Subject {data['subject']}')
         plt.xlabel('Frequency (Hz)')
         plt.ylabel('Amplitude')
         plt.legend()
         plt.subplot(2, 2, 4)
-        plt.hist(comp_fft[1, 0], bins=100, alpha=0.5, label='FFT Amplitude, [{}]'.format(data['map'][true_labels[0]]))
-        plt.title(f'FFT Amplitude Distribution for Component 2, Segment 1, Subject {subject}')
+        plt.hist(comp_fft[1, 0], bins=100, alpha=0.5, label='FFT Amplitude, [{}]'.format(data['map'][labels[0]]))
+        plt.title(f'FFT Amplitude Distribution for Component 2, Segment 1, Subject {data['subject']}')
         plt.xlabel('Frequency (Hz)')
         plt.ylabel('Amplitude')
         plt.legend()
@@ -420,26 +439,45 @@ def main(subject: str, NUM_COMPONENTS: int, NUM_BINS: int, ALPHA: float,
     print('Min activity p-value:', min_activity_pval)
     print('Max activity p-value:', max_activity_pval)
     overall_activity_significance = any([any(s) for s in significance])
-    print('Overall activity significance conclusion:', overall_activity_significance)
-    print()
     return overall_activity_significance
     
 
 
-if __name__ == '__main__':
+def main() -> None:
+    NUM_COMPONENTS = 2
+    NUM_BINS = 2
+    ALPHA = 0.05
+    sliding_window_size = 5  # in steps
+    window_secs = 15  # in seconds
+    step_secs = 5  # in seconds
+    K = 2
     fp, tp, fn, tn = 0, 0, 0, 0
     for subject in SUBJECTS:
-        for shuf in [False, True]:
-            print(f"Processing subject: {subject} with shuffle={shuf}")
-            ac = main(subject=subject, NUM_COMPONENTS=2, NUM_BINS=2, ALPHA=0.05, temp_shuffle=shuf, plot=False,
-                      sliding_window_size=5, window_secs=15, step_secs=5)
-            print(f"Activity significance: {ac}, Should be {not shuf}")
-            print('Success:', ac == (not shuf))
-            if shuf:
-                fp += ac
-                tn += not ac
-            else:
-                tp += ac
-                fn += not ac
+        segments, true_labels, data = pre_analysis(subject=subject, NUM_COMPONENTS=NUM_COMPONENTS, remove_activity=True, 
+                                                   sliding_window_size=sliding_window_size,
+                                                    window_secs=window_secs, step_secs=step_secs)
+        for labels in switch_to_activity_labels(true_labels, k=K):
+            print(f"Processing subject: {subject} with shuffle=True")
+            ac = run_analysis(data, segments, labels, window_secs=window_secs, NUM_COMPONENTS=NUM_COMPONENTS, 
+                              NUM_BINS=NUM_BINS, ALPHA=ALPHA, plot=False)
+            print(f"Activity significance: {ac}, Should be False")
+            print('Success:', Fore.RED if ac else Fore.GREEN ,not ac, Fore.RESET)
+            fp += ac
+            tn += not ac
             print("\n" + "="*50 + "\n")
+        segments, true_labels, data = pre_analysis(subject=subject, NUM_COMPONENTS=NUM_COMPONENTS, remove_activity=False,
+                                                    sliding_window_size=sliding_window_size, window_secs=window_secs, 
+                                                    step_secs=step_secs)
+        print(f"Processing subject: {subject} with shuffle=False")
+        ac = run_analysis(data, segments, true_labels, window_secs=window_secs, 
+                          NUM_COMPONENTS=NUM_COMPONENTS, NUM_BINS=NUM_BINS, ALPHA=ALPHA, plot=False)
+        tp += ac
+        fn += not ac
+        print(f"Activity significance: {ac}, Should be True")
+        print('Success:', Fore.GREEN if ac else Fore.RED, ac, Fore.RESET)
+        print("\n" + "="*50 + "\n")
     print(f"True Positives: {tp}, False Positives: {fp}, False Negatives: {fn}, True Negatives: {tn}")
+
+
+if __name__ == '__main__':
+    main()
