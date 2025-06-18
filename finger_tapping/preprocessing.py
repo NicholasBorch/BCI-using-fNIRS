@@ -143,7 +143,7 @@ def get_epochs(raw_haemo: Raw,
                event_dict: dict, 
                tmin: Optional[float] = None, 
                tmax: Optional[float] = None, 
-               reject_criteria: Optional[dict] = None) -> mne.Epochs:
+               reject_criteria: Optional[dict] = None) -> Epochs:
     """Epochs the haemoglobin data. Returns the epoched data."""
     if tmin is None:
         tmin = TMIN
@@ -204,7 +204,7 @@ def preprocessing_pipeline(intensity: mne.io.Raw, subject: str, save: bool = Tru
 
     # Saving data for further analysis
     if save:
-        save_epochs(epochs, subject=subject, tmin=tmin, tmax=tmax)
+        save_epochs(epochs, subject=subject)
     return epochs
 
 
@@ -213,11 +213,10 @@ def simple_pipeline(subject: str, save: bool = True, tmin=None, tmax=None) -> mn
     Runs the full preprocessing pipeline on the raw intensity data for a given subject. Returns the epoched data.
     Runs pipeline based on default values specified at the top of the file.
     """ 
-    intensity = raw_intensity_pipeline(subject = subject, tmin=tmin, tmax=tmax)
+    intensity = raw_intensity_pipeline(subject = subject)
     return preprocessing_pipeline(intensity, subject, save)
 
 
 if __name__ == "__main__":
     subject = SUBJECTS[0]
     test_run = simple_pipeline(subject=subject)
-    print(test_run.annotations.description)
