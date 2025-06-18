@@ -104,7 +104,7 @@ def center_data(data_concat: np.ndarray) -> np.ndarray:
 
 def get_ICA_signal(data_concat: np.ndarray, n_components: int) -> np.ndarray:
     """Performs ICA on the concatenated data and returns the signal."""
-    ica = FastICA(random_state=42, whiten='unit-variance', max_iter=1000, tol=0.0001, n_components=n_components)
+    ica = FastICA(random_state=42, whiten='unit-variance', max_iter=1000, tol=0.0001)#, n_components=n_components)
     S_ = ica.fit_transform(data_concat)  # (n_epochs * n_times, n_components)
     return S_
 
