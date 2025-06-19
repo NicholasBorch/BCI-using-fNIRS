@@ -209,7 +209,7 @@ def main() -> None:
 
 
     # Terminal summary
-    print("\n=== BEST FEATURE SET (by mean F₂) ===")
+    print("\n=== BEST FEATURE SET (by mean F2) ===")
     print(f"Size {len(best_subset)}  -->  {best_subset}")
     print(f"τ used = {best_m['tau']}")
     for k in ("f2", "precision_task", "recall_task", "f1_task", "accuracy", "fp_rate_control", "ari", "bic", "silhouette"):
