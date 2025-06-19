@@ -1,0 +1,180 @@
+"""
+Preparing fNIRS features from pre-processed epochs
+--------------------------------------------------------------------------
+This module extracts a set of features from a single epoch of fNIRS data
+
+1. Amplitude and dispersion:
+- delta_mean, peak_amplitude, delta_variance, auc_difference, abs_auc_activation, power_epoch
+
+2. Shape descriptors:
+- kurtosis_activation, extrema_abs_slope, extrema_line_length  
+
+3. Broadband energy:
+- total_band_power_delta (0.01 - 1.20 Hz, activation minus baseline)
+
+If an ICA model and the indices of the “left” and "right" motor ICs are given:
+- the same 9 features (all except power_epoch) are extracted from each IC trace, and  
+- their mean-squared powers are added ("power_ic_left", "power_ic_right").
+
+Total with ICA gives: 10 (raw) + 2 (IC powers) + 2 * 9 (IC features) = 30 features.
+"""
+
+from typing import Dict, Tuple, Optional
+import numpy as np
+from numpy.typing import NDArray
+from scipy.signal import welch
+from scipy.stats  import kurtosis
+from sklearn.decomposition import FastICA
+from sklearn.metrics import roc_auc_score
+
+# CONSTANTS
+DEFAULT_SAMPLING_RATE_HZ: float = 7.81
+BASELINE_DURATION_SEC:    float = 5.0
+WELCH_NPERSEG_MAX: int    = 64
+
+# Broadband limits for the energy feature
+FREQ_LOW_HZ:  float = 0.01
+FREQ_HIGH_HZ: float = 1.20
+
+
+# Helper functions
+def _baseline_len(n_samples: int, fs: float) -> int:
+    """Number of samples in the 5-second baseline."""
+    return int(round(BASELINE_DURATION_SEC * fs))
+
+
+def _welch_band_power(sig: NDArray[np.float_], f_lo: float, f_hi: float, fs: float) -> float:
+    """Welch-PSD power in [f_lo, f_hi)."""
+    freqs, psd = welch(sig, fs = fs, nperseg = min(WELCH_NPERSEG_MAX, sig.size), scaling = "density")
+    return float(psd[(freqs >= f_lo) & (freqs < f_hi)].sum())
+
+
+# 10-feature extractor for ONE 1-D trace
+def _features_from_trace(trace: NDArray[np.float_], fs: float = DEFAULT_SAMPLING_RATE_HZ, prefix: str = "", include_power: bool = True) -> Dict[str, float]:
+    """
+    Parameters
+    ----------
+    trace : 1-D array (epoch-averaged signal or an IC time-course)
+    include_power : bool
+    - If True, "power_epoch" is appended - used only for the raw trace.
+    """
+    n_bl = _baseline_len(trace.size, fs)
+    baseline, activation = trace[:n_bl], trace[n_bl:]
+
+    # Amplitude and dispersion
+    delta_mean         = activation.mean() - baseline.mean()
+    peak_amplitude     = activation.max() - baseline.mean()
+    delta_variance     = activation.var(ddof=0) - baseline.var(ddof=0)
+    auc_activation     = np.trapz(activation, dx=1 / fs)
+    auc_baseline       = np.trapz(baseline, dx=1 / fs)
+    auc_difference     = auc_activation - auc_baseline
+    abs_auc_activation = abs(auc_activation)
+    if include_power:
+        power_epoch = float(np.mean(trace ** 2))
+
+    # Shape descriptors
+    idx_peak, idx_trough = int(np.argmax(activation)), int(np.argmin(activation))
+    if idx_peak != idx_trough:
+        extrema_abs_slope  = abs((activation[idx_peak] - activation[idx_trough]) / (idx_peak - idx_trough))
+        extrema_line_length = np.hypot(idx_peak - idx_trough, activation[idx_peak] - activation[idx_trough])
+    else:
+        extrema_abs_slope = extrema_line_length = 0.0
+    kurtosis_activation = kurtosis(activation, bias=False)
+
+    # Broadband energy
+    total_band_power_delta = (_welch_band_power(activation, FREQ_LOW_HZ, FREQ_HIGH_HZ, fs) - _welch_band_power(baseline, FREQ_LOW_HZ, FREQ_HIGH_HZ, fs))
+
+    feats = {
+        "delta_mean"            : delta_mean,
+        "peak_amplitude"        : peak_amplitude,
+        "delta_variance"        : delta_variance,
+        "auc_difference"        : auc_difference,
+        "abs_auc_activation"    : abs_auc_activation,
+        "kurtosis_activation"   : kurtosis_activation,
+        "extrema_abs_slope"     : extrema_abs_slope,
+        "extrema_line_length"   : extrema_line_length,
+        "total_band_power_delta": total_band_power_delta,
+    }
+    if include_power:
+        feats["power_epoch"] = power_epoch
+
+    return {f"{prefix}{k}": float(v) for k, v in feats.items()}
+
+
+# FastICA
+def fit_motor_ica(epochs_by_condition: Dict[str, "mne.Epochs"], random_state: int = 42) -> Tuple[FastICA, int, int]:
+    """Fits ICA and returns (model, ic_left_idx, ic_right_idx)."""
+    cond_order = ["Control", "Left", "Right"]
+    blocks, n_samp = [], []
+
+    for cond in cond_order:
+        dat = epochs_by_condition[cond].get_data(picks = ["hbo", "hbr"])
+        resh = dat.transpose(0, 2, 1).reshape(-1, dat.shape[1])
+        blocks.append(resh)
+        n_samp.append(resh.shape[0])
+
+    X = np.vstack(blocks)
+    ica = FastICA(n_components=X.shape[1], whiten="unit-variance", max_iter=800, tol=1e-3, random_state=random_state)
+    S = ica.fit_transform(X)
+
+    # Calculating Epoch-wise IC power
+    rows, labs, cur = [], [], 0
+    for i, cond in enumerate(cond_order):
+        n_ep = epochs_by_condition[cond].get_data().shape[0]
+        seg = S[cur:cur + n_samp[i]]
+        cur += n_samp[i]
+        rows.append(seg.reshape(n_ep, -1, S.shape[1]).var(axis = 1))
+        labs.extend([i] * n_ep)
+
+    P = np.vstack(rows)
+    labs = np.array(labs)
+
+    mask = np.isin(labs, [1, 2])               # Left & Right
+    X_lr = P[mask]
+    y_lr = (labs[mask] == 2).astype(int)       # 1 = Right
+
+    auc = np.array([roc_auc_score(y_lr, X_lr[:, j]) for j in range(X_lr.shape[1])])
+    rank = np.argsort(np.abs(auc - 0.5))[::-1]
+
+    ic_right = int(rank[0])
+    ic_left  = int(rank[1])
+    return ica, ic_left, ic_right
+
+
+# Public extractor for ONE epoch
+def extract_all_epoch_features(epoch_data: NDArray[np.float_], sampling_rate_hz: float = DEFAULT_SAMPLING_RATE_HZ, ica_model: Optional[FastICA] = None, ic_left_index: Optional[int] = None, ic_right_index: Optional[int] = None) -> Dict[str, float]:
+    """9 raw features (+ 21 extra if ICA available)."""
+    feats = _features_from_trace(epoch_data.mean(axis = 0), fs=sampling_rate_hz, include_power = True)
+
+    if ica_model is None:
+        return feats
+
+    if ic_left_index is None or ic_right_index is None:
+        raise ValueError("IC indices required when ICA model is supplied")
+
+    src = ica_model.transform(epoch_data.T)
+    ic_l, ic_r = src[:, ic_left_index], src[:, ic_right_index]
+
+    feats.update({"power_ic_left" : float(np.mean(ic_l ** 2)), "power_ic_right": float(np.mean(ic_r ** 2)),
+        **_features_from_trace(ic_l, fs = sampling_rate_hz,
+                               prefix="ic_left_", include_power = False),
+        **_features_from_trace(ic_r, fs = sampling_rate_hz,
+                               prefix="ic_right_", include_power = False),
+    })
+    return feats
+
+
+###
+if __name__ == "__main__":
+    from finger_tapping.preprocessing import simple_pipeline, SUBJECTS
+
+    subj = SUBJECTS[0]
+    epd  = simple_pipeline(subj, save=False)
+
+    ica, ic_l, ic_r = fit_motor_ica(epd)
+    first = epd["Control"][0].get_data(picks = ["hbo", "hbr"])[0]
+    fdict = extract_all_epoch_features(first, ica_model = ica, ic_left_index = ic_l, ic_right_index = ic_r)
+
+    print(f"{len(fdict)} features extracted for subject {subj}")
+    for k, v in fdict.items():
+        print(f"{k:28s}: {v: .6f}")
