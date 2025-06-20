@@ -27,8 +27,8 @@ from finger_tapping.preprocessing import simple_pipeline, SUBJECTS
 from finger_tapping.feature_preparation4 import (extract_all_epoch_features, fit_motor_ica, DEFAULT_SAMPLING_RATE_HZ)
 
 # Search parameters
-N_RANDOM_TRIALS = 10_000
-MAX_FEATURES    = 10
+N_RANDOM_TRIALS = 20_000
+MAX_FEATURES    = 5
 RNG             = random.Random(42)
 TAU_VALUES      = (0.0, 0.6, 0.8)   # 0.0 = hard assignment
 
@@ -129,25 +129,21 @@ def main() -> None:
 
     # EVALUATION
 
-    # Progress tracking
-    progress_log = []
-    global_best_f2 = -1.0
-    iteration_idx = 0
+    print(f"\n=== Evaluating {len(candidate_sets)} subsets x {len(TAU_VALUES)} τ ===")
+    seen, results, all_trials = set(), [], []
+    progress_log, global_best_f2, iteration_idx = [], -1.0, 0
 
-    print(f"\n=== Evaluating {len(candidate_sets)} feature subsets x {len(TAU_VALUES)} τ ===")
-    seen, results = set(), []
     for subset in tqdm(candidate_sets):
         if subset in seen:
             continue
         seen.add(subset)
 
-        best_tau, best_metrics = None, None
         for tau in TAU_VALUES:
             iteration_idx += 1
             metrics_acc = defaultdict(list)
             for df in subj_tables.values():
                 X = df.loc[:, subset].to_numpy(float)
-                X = StandardScaler().fit_transform(np.nan_to_num(X, nan=0.0))
+                X = StandardScaler().fit_transform(np.nan_to_num(X, nan = 0.0))
                 ctrl_mask = df["is_control"].to_numpy(bool)
 
                 m = _fit_gmm_metrics(X, ctrl_mask, tau)
@@ -155,17 +151,19 @@ def main() -> None:
                     metrics_acc[k].append(v)
 
             mean_m = {k: float(np.mean(vs)) for k, vs in metrics_acc.items()}
-            mean_m["tau"] = tau
+            mean_m |= {"tau" : tau, "subset" : ",".join(subset), "n_feat" : len(subset), "iter" : iteration_idx}
+            all_trials.append(mean_m)
 
-            # Keep tau giving higher F2 (tie: lower FP_ctrl)
-            if (best_metrics is None or mean_m["f2"] > best_metrics["f2"] or
-                (mean_m["f2"] == best_metrics["f2"] and mean_m["fp_rate_control"] < best_metrics["fp_rate_control"])):
-                best_tau, best_metrics = tau, mean_m
+            # Tracking best tau per subset for later “winner” selection
+            if (subset not in [r[0] for r in results] or mean_m["f2"] > [r[1]["f2"] for r in results if r[0]==subset][0]):
+                # Removing old entry if exists
+                results = [r for r in results if r[0] != subset]
+                results.append((subset, mean_m))
 
-            # Progress tracking
-            if mean_m["f2"] > global_best_f2:                    
-                global_best_f2 = mean_m["f2"]                    
-                progress_log.append({                            
+            # Progress log whenever new global best is found
+            if mean_m["f2"] > global_best_f2:
+                global_best_f2 = mean_m["f2"]
+                progress_log.append({
                     "iteration" : iteration_idx,
                     "subset"    : ",".join(subset),
                     "tau"       : tau,
@@ -173,49 +171,28 @@ def main() -> None:
                     "precision" : mean_m["precision_task"],
                     "recall"    : mean_m["recall_task"],
                     "fp_ctrl"   : mean_m["fp_rate_control"],
-                })                                        
+                })
 
-        results.append((subset, best_metrics))
+    # Selecting overall best (max F2, tie --> fewer features)
+    best_subset, best_m = max(results, key = lambda t: (t[1]["f2"], -t[1]["n_feat"]))
 
-
-    # Choose overall best (Max F2, tie then fewer features)
-    best_subset, best_m = max(results, key=lambda t: (t[1]["f2"], -len(t[0])))
-
-    # Save log
+    # Save all trials
     out_dir = Path("search_results"); out_dir.mkdir(exist_ok = True)
-    log_path = out_dir / "random_search_summary.txt"
-    with log_path.open("w") as fh:
-        header = ("Subset".ljust(92) + "τ     F2     PrecT     RecT     F1T     Acc     FPctrl     ARI     BIC     Sil\n")
-        fh.write(header)
-        fh.write("-"*len(header)+"\n")
-        for subset, m in sorted(results, key = lambda x: (-x[1]["f2"], len(x[0]))):
-            fh.write(f"{','.join(subset):<92s}"
-                     f"{m['tau']:<3.1f} "
-                     f"{m['f2']:<5.3f} "
-                     f"{m['precision_task']:<5.3f} "
-                     f"{m['recall_task']:<5.3f} "
-                     f"{m['f1_task']:<5.3f} "
-                     f"{m['accuracy']:<5.3f} "
-                     f"{m['fp_rate_control']:<6.3f} "
-                     f"{m['ari']:<5.3f} "
-                     f"{m['bic']:<8.1f} "
-                     f"{m['silhouette']:<5.3f}\n")
-    
-    #  Save best-so-far progression for plotting
-    prog_df = pd.DataFrame(progress_log)
+    trials_path = out_dir / "random_search_trials.csv"
+    pd.DataFrame(all_trials).to_csv(trials_path, index = False)
+
     prog_path = out_dir / "best_f2_progression.csv"
-    prog_df.to_csv(prog_path, index = False)
-    print(f"Best-score progression saved --> {prog_path.resolve()}")
+    pd.DataFrame(progress_log).to_csv(prog_path, index = False)
 
-
-    # Terminal summary
-    print("\n=== BEST FEATURE SET (by mean F2) ===")
+    # Summary for Terminal
+    print("\n=== BEST FEATURE SET (by mean F₂) ===")
     print(f"Size {len(best_subset)}  -->  {best_subset}")
     print(f"τ used = {best_m['tau']}")
-    for k in ("f2", "precision_task", "recall_task", "f1_task", "accuracy", "fp_rate_control", "ari", "bic", "silhouette"):
-        print(f"{k:>18s}: {best_m[k]:.3f}")
-    print(f"\nFull summary saved --> {log_path.resolve()}")
-
+    for key in ("f2", "precision_task", "recall_task", "f1_task",
+                "accuracy", "fp_rate_control", "ari", "bic", "silhouette"):
+        print(f"{key:>18s}: {best_m[key]:.3f}")
+    print(f"\nAll trials saved --> {trials_path.resolve()}")
+    print(f"Best-so-far trajectory saved --> {prog_path.resolve()}")
 
 
 if __name__ == "__main__":
