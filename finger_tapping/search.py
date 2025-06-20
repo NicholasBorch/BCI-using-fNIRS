@@ -27,7 +27,7 @@ from finger_tapping.preprocessing import simple_pipeline, SUBJECTS
 from finger_tapping.feature_preparation4 import (extract_all_epoch_features, fit_motor_ica, DEFAULT_SAMPLING_RATE_HZ)
 
 # Search parameters
-N_RANDOM_TRIALS = 20_000
+N_RANDOM_TRIALS = 10
 MAX_FEATURES    = 5
 RNG             = random.Random(42)
 TAU_VALUES      = (0.0, 0.6, 0.8)   # 0.0 = hard assignment
@@ -70,26 +70,49 @@ def _build_feature_table(subj_code: str) -> pd.DataFrame:
     return pd.DataFrame(rows).set_index("epoch_id")
 
 
+#  GMM fit
 def _fit_gmm_metrics(X: np.ndarray, ctrl_mask: np.ndarray, tau: float, seed: int = 42) -> dict[str, float]:
-    """Fit 3-component GMM, soft prediction (τ), metrics."""
+    """
+    - Fit 3-component full-cov GMM
+    - Pick the component that contains most known-Control epochs
+    - Decide “Control vs Task” either
+         - with a P(Control) ≥ τ   (τ > 0)   **soft threshold**, or
+         - by MAP hard assignment  (τ <= 0)  **cluster labels**
+    - return aggregate metrics
+    """
     gmm = GaussianMixture(n_components = 3, covariance_type = "full", n_init = 20, max_iter = 500, reg_covar = 1e-6, random_state = seed).fit(X)
 
-    resp = gmm.predict_proba(X)                   # Responsibilities
-    ctrl_share = resp[ctrl_mask].mean(axis = 0)   # Proportion Control per cluster
-    ctrl_cluster = int(np.argmax(ctrl_share))     # Cluster deemed to be Control
+    # Posterior responsibilities: shape (n_epochs, 3)
+    resp = gmm.predict_proba(X)
 
-    p_ctrl = resp[:, ctrl_cluster]
-    y_pred = np.where(p_ctrl >= tau, 0, 1)        # 0 = Control, 1 = Task
-    y_true = (~ctrl_mask).astype(int)
+    # Identifying the component that best represents true "Control"
+    ctrl_share = resp[ctrl_mask].mean(axis=0)          # mean P(ctrl) per comp
+    ctrl_comp_id = int(np.argmax(ctrl_share))            # component index
 
-    beta = 2.0
+    # Decision rule
+    if tau <= 0.0:
+        # MAP / hard assignment
+        cluster_ids = gmm.predict(X)
+        y_pred = np.where(cluster_ids == ctrl_comp_id, 0, 1)
+    else:
+        # Soft-probability threshold
+        p_ctrl = resp[:, ctrl_comp_id]                  # P(Control) per epoch
+        y_pred = np.where(p_ctrl >= tau, 0, 1)
+
+    y_true = (~ctrl_mask).astype(int)                    # 0 = Control, 1 = Task
+
+    #  Metrics
+    beta     = 2.0
+    tn, fp, fn, tp = confusion_matrix(
+                        y_true, y_pred, labels=[0, 1]).ravel()
+
     metrics = {
         "f2"              : fbeta_score(y_true, y_pred, beta = beta, zero_division = 0),
         "precision_task"  : precision_score(y_true, y_pred, pos_label = 1, zero_division = 0),
-        "recall_task"     : recall_score   (y_true, y_pred, pos_label = 1, zero_division = 0),
-        "f1_task"         : f1_score       (y_true, y_pred, pos_label = 1, zero_division = 0),
+        "recall_task"     : recall_score(y_true, y_pred, pos_label = 1, zero_division = 0),
+        "f1_task"         : f1_score(y_true, y_pred, pos_label = 1, zero_division = 0),
         "accuracy"        : accuracy_score(y_true, y_pred),
-        "fp_rate_control" : confusion_matrix(y_true, y_pred, labels = [0, 1]).ravel()[1] / (ctrl_mask.sum() + 1e-9),
+        "fp_rate_control" : fp / (fp + tn + 1e-9),
         "ari"             : adjusted_rand_score(y_true, gmm.predict(X)),
         "bic"             : gmm.bic(X),
     }
@@ -97,7 +120,9 @@ def _fit_gmm_metrics(X: np.ndarray, ctrl_mask: np.ndarray, tau: float, seed: int
         metrics["silhouette"] = silhouette_score(X, gmm.predict(X))
     except ValueError:
         metrics["silhouette"] = np.nan
+
     return metrics
+
 
 
 #  MAIN search loop 

@@ -28,9 +28,9 @@ from sklearn.decomposition import FastICA
 from sklearn.metrics import roc_auc_score
 
 # CONSTANTS
-DEFAULT_SAMPLING_RATE_HZ: float = 7.81
-BASELINE_DURATION_SEC:    float = 5.0
-WELCH_NPERSEG_MAX: int    = 64
+DEFAULT_SAMPLING_RATE_HZ:   float = 7.81
+BASELINE_DURATION_SEC:      float = 5.0
+WELCH_NPERSEG_MAX:            int = 64
 
 # Broadband limits for the energy feature
 FREQ_LOW_HZ:  float = 0.01
@@ -41,12 +41,6 @@ FREQ_HIGH_HZ: float = 1.20
 def _baseline_len(n_samples: int, fs: float) -> int:
     """Number of samples in the 5-second baseline."""
     return int(round(BASELINE_DURATION_SEC * fs))
-
-
-def _welch_band_power(sig: NDArray[np.float_], f_lo: float, f_hi: float, fs: float) -> float:
-    """Welch-PSD power in [f_lo, f_hi)."""
-    freqs, psd = welch(sig, fs = fs, nperseg = min(WELCH_NPERSEG_MAX, sig.size), scaling = "density")
-    return float(psd[(freqs >= f_lo) & (freqs < f_hi)].sum())
 
 
 # 10-feature extractor for ONE 1-D trace
@@ -81,8 +75,6 @@ def _features_from_trace(trace: NDArray[np.float_], fs: float = DEFAULT_SAMPLING
         extrema_abs_slope = extrema_line_length = 0.0
     kurtosis_activation = kurtosis(activation, bias=False)
 
-    # Broadband energy
-    total_band_power_delta = (_welch_band_power(activation, FREQ_LOW_HZ, FREQ_HIGH_HZ, fs) - _welch_band_power(baseline, FREQ_LOW_HZ, FREQ_HIGH_HZ, fs))
 
     feats = {
         "delta_mean"            : delta_mean,
@@ -93,7 +85,6 @@ def _features_from_trace(trace: NDArray[np.float_], fs: float = DEFAULT_SAMPLING
         "kurtosis_activation"   : kurtosis_activation,
         "extrema_abs_slope"     : extrema_abs_slope,
         "extrema_line_length"   : extrema_line_length,
-        "total_band_power_delta": total_band_power_delta,
     }
     if include_power:
         feats["power_epoch"] = power_epoch
