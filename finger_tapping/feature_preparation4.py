@@ -44,7 +44,7 @@ def _baseline_len(n_samples: int, fs: float) -> int:
 
 
 # 10-feature extractor for ONE 1-D trace
-def _features_from_trace(trace: NDArray[np.float_], fs: float = DEFAULT_SAMPLING_RATE_HZ, prefix: str = "", include_power: bool = True) -> Dict[str, float]:
+def _features_from_trace(trace: NDArray[np.float32], fs: float = DEFAULT_SAMPLING_RATE_HZ, prefix: str = "", include_power: bool = True) -> Dict[str, float]:
     """
     Parameters
     ----------
@@ -56,7 +56,7 @@ def _features_from_trace(trace: NDArray[np.float_], fs: float = DEFAULT_SAMPLING
     baseline, activation = trace[:n_bl], trace[n_bl:]
 
     # Amplitude and dispersion
-    delta_mean         = activation.mean() - baseline.mean()
+    delta_mean         = abs(activation).mean() - abs(baseline).mean()
     peak_amplitude     = activation.max() - baseline.mean()
     delta_variance     = activation.var(ddof=0) - baseline.var(ddof=0)
     auc_activation     = np.trapz(activation, dx=1 / fs)
@@ -133,7 +133,7 @@ def fit_motor_ica(epochs_by_condition: Dict[str, "mne.Epochs"], random_state: in
 
 
 # Public extractor for ONE epoch
-def extract_all_epoch_features(epoch_data: NDArray[np.float_], sampling_rate_hz: float = DEFAULT_SAMPLING_RATE_HZ, ica_model: Optional[FastICA] = None, ic_left_index: Optional[int] = None, ic_right_index: Optional[int] = None) -> Dict[str, float]:
+def extract_all_epoch_features(epoch_data: NDArray[np.float32], sampling_rate_hz: float = DEFAULT_SAMPLING_RATE_HZ, ica_model: Optional[FastICA] = None, ic_left_index: Optional[int] = None, ic_right_index: Optional[int] = None) -> Dict[str, float]:
     """9 raw features (+ 21 extra if ICA available)."""
     feats = _features_from_trace(epoch_data.mean(axis = 0), fs=sampling_rate_hz, include_power = True)
 
