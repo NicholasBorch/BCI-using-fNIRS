@@ -36,26 +36,45 @@ WELCH_NPERSEG_MAX:            int = 64
 FREQ_LOW_HZ:  float = 0.01
 FREQ_HIGH_HZ: float = 1.20
 
-
 # Helper functions
 def _baseline_len(n_samples: int, fs: float) -> int:
-    """Number of samples in the 5-second baseline."""
+    """
+    Calculates the number of samples corresponding to the baseline period.
+
+    Parameters:
+    n_samples : int
+        Total number of samples in the epoch.
+    fs : float
+        Sampling frequency in Hz.
+
+    Returns:
+    int
+        Number of samples in the 5-second baseline.
+    """
     return int(round(BASELINE_DURATION_SEC * fs))
 
-
-# 10-feature extractor for ONE 1-D trace
 def _features_from_trace(trace: NDArray[np.float32], fs: float = DEFAULT_SAMPLING_RATE_HZ, prefix: str = "", include_power: bool = True) -> Dict[str, float]:
     """
-    Parameters
-    ----------
-    trace : 1-D array (epoch-averaged signal or an IC time-course)
+    Extracts 9 descriptive features from a 1D fNIRS signal trace.
+
+    Parameters:
+    trace : np.ndarray
+        1D array representing the time series.
+    fs : float
+        Sampling frequency in Hz.
+    prefix : str
+        Prefix for feature keys (used for IC features).
     include_power : bool
-    - If True, "power_epoch" is appended - used only for the raw trace.
+        Whether to include power_epoch in the output (used for raw only).
+
+    Returns:
+    dict
+        Dictionary of extracted features.
     """
     n_bl = _baseline_len(trace.size, fs)
     baseline, activation = trace[:n_bl], trace[n_bl:]
 
-    # Amplitude and dispersion
+    # Amplitude and dispersion features
     delta_mean         = abs(activation).mean() - abs(baseline).mean()
     peak_amplitude     = activation.max() - baseline.mean()
     delta_variance     = activation.var(ddof=0) - baseline.var(ddof=0)
@@ -75,7 +94,6 @@ def _features_from_trace(trace: NDArray[np.float32], fs: float = DEFAULT_SAMPLIN
         extrema_abs_slope = extrema_line_length = 0.0
     kurtosis_activation = kurtosis(activation, bias=False)
 
-
     feats = {
         "delta_mean"            : delta_mean,
         "peak_amplitude"        : peak_amplitude,
@@ -91,15 +109,27 @@ def _features_from_trace(trace: NDArray[np.float32], fs: float = DEFAULT_SAMPLIN
 
     return {f"{prefix}{k}": float(v) for k, v in feats.items()}
 
-
-# FastICA
 def fit_motor_ica(epochs_by_condition: Dict[str, "mne.Epochs"], random_state: int = 42) -> Tuple[FastICA, int, int]:
-    """Fits ICA and returns (model, ic_left_idx, ic_right_idx)."""
+    """
+    Fits ICA on all epochs and selects motor-relevant components.
+
+    Parameters:
+    epochs_by_condition : dict
+        Dictionary mapping condition labels ("Control", "Left", "Right") to MNE Epochs.
+    random_state : int
+        Seed for ICA reproducibility.
+
+    Returns:
+    tuple
+        - Trained FastICA model
+        - Index of left motor IC
+        - Index of right motor IC
+    """
     cond_order = ["Control", "Left", "Right"]
     blocks, n_samp = [], []
 
     for cond in cond_order:
-        dat = epochs_by_condition[cond].get_data(picks = ["hbo", "hbr"])
+        dat = epochs_by_condition[cond].get_data(picks=["hbo", "hbr"])
         resh = dat.transpose(0, 2, 1).reshape(-1, dat.shape[1])
         blocks.append(resh)
         n_samp.append(resh.shape[0])
@@ -108,21 +138,22 @@ def fit_motor_ica(epochs_by_condition: Dict[str, "mne.Epochs"], random_state: in
     ica = FastICA(n_components=X.shape[1], whiten="unit-variance", max_iter=800, tol=1e-3, random_state=random_state)
     S = ica.fit_transform(X)
 
-    # Calculating Epoch-wise IC power
+    # Estimate power per component, per epoch
     rows, labs, cur = [], [], 0
     for i, cond in enumerate(cond_order):
         n_ep = epochs_by_condition[cond].get_data().shape[0]
         seg = S[cur:cur + n_samp[i]]
         cur += n_samp[i]
-        rows.append(seg.reshape(n_ep, -1, S.shape[1]).var(axis = 1))
+        rows.append(seg.reshape(n_ep, -1, S.shape[1]).var(axis=1))
         labs.extend([i] * n_ep)
 
     P = np.vstack(rows)
     labs = np.array(labs)
 
-    mask = np.isin(labs, [1, 2])               # Left & Right
+    # Discriminate between Left and Right
+    mask = np.isin(labs, [1, 2])
     X_lr = P[mask]
-    y_lr = (labs[mask] == 2).astype(int)       # 1 = Right
+    y_lr = (labs[mask] == 2).astype(int)
 
     auc = np.array([roc_auc_score(y_lr, X_lr[:, j]) for j in range(X_lr.shape[1])])
     rank = np.argsort(np.abs(auc - 0.5))[::-1]
@@ -131,11 +162,33 @@ def fit_motor_ica(epochs_by_condition: Dict[str, "mne.Epochs"], random_state: in
     ic_left  = int(rank[1])
     return ica, ic_left, ic_right
 
+def extract_all_epoch_features(
+    epoch_data: NDArray[np.float32],
+    sampling_rate_hz: float = DEFAULT_SAMPLING_RATE_HZ,
+    ica_model: Optional[FastICA] = None,
+    ic_left_index: Optional[int] = None,
+    ic_right_index: Optional[int] = None
+) -> Dict[str, float]:
+    """
+    Extracts all features from a single fNIRS epoch, optionally using ICA.
 
-# Public extractor for ONE epoch
-def extract_all_epoch_features(epoch_data: NDArray[np.float32], sampling_rate_hz: float = DEFAULT_SAMPLING_RATE_HZ, ica_model: Optional[FastICA] = None, ic_left_index: Optional[int] = None, ic_right_index: Optional[int] = None) -> Dict[str, float]:
-    """9 raw features (+ 21 extra if ICA available)."""
-    feats = _features_from_trace(epoch_data.mean(axis = 0), fs=sampling_rate_hz, include_power = True)
+    Parameters:
+    epoch_data : np.ndarray
+        Shape (channels, timepoints), fNIRS data from a single epoch.
+    sampling_rate_hz : float
+        Sampling frequency in Hz.
+    ica_model : FastICA, optional
+        Pre-fitted ICA model.
+    ic_left_index : int, optional
+        Index of left motor IC.
+    ic_right_index : int, optional
+        Index of right motor IC.
+
+    Returns:
+    dict
+        Dictionary of extracted features (10 to 30 features depending on ICA).
+    """
+    feats = _features_from_trace(epoch_data.mean(axis=0), fs=sampling_rate_hz, include_power=True)
 
     if ica_model is None:
         return feats
@@ -146,11 +199,11 @@ def extract_all_epoch_features(epoch_data: NDArray[np.float32], sampling_rate_hz
     src = ica_model.transform(epoch_data.T)
     ic_l, ic_r = src[:, ic_left_index], src[:, ic_right_index]
 
-    feats.update({"power_ic_left" : float(np.mean(ic_l ** 2)), "power_ic_right": float(np.mean(ic_r ** 2)),
-        **_features_from_trace(ic_l, fs = sampling_rate_hz,
-                               prefix="ic_left_", include_power = False),
-        **_features_from_trace(ic_r, fs = sampling_rate_hz,
-                               prefix="ic_right_", include_power = False),
+    feats.update({
+        "power_ic_left" : float(np.mean(ic_l ** 2)),
+        "power_ic_right": float(np.mean(ic_r ** 2)),
+        **_features_from_trace(ic_l, fs=sampling_rate_hz, prefix="ic_left_", include_power=False),
+        **_features_from_trace(ic_r, fs=sampling_rate_hz, prefix="ic_right_", include_power=False),
     })
     return feats
 

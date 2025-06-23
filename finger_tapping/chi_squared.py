@@ -29,8 +29,22 @@ RNG_SEED          = 42
 SCENARIO2_EPOCHS  = ["Left", "Right"]  # choose which task epochs to include
 
 
-
 def normalise_conditions(raw):
+    """
+    Extracts and standardizes condition labels from raw EEG event IDs.
+
+    Parameters:
+    raw : mne.io.Raw
+        Raw EEG recording with annotated event IDs.
+
+    Returns:
+    dict
+        Dictionary mapping standardized labels ("Control", "Left", "Right") to event codes.
+
+    Raises:
+    RuntimeError
+        If the control condition is not found.
+    """
     patt = {"Control": re.compile("control", re.I), "Left": re.compile("left", re.I), "Right": re.compile("right", re.I)}
     ep = {name: raw[name] for name in raw.event_id}
     out = {}
@@ -44,6 +58,19 @@ def normalise_conditions(raw):
     return out
 
 def extract_features(ep_dict, selected):
+    """
+    Extracts and scales selected features for each condition's epoch data.
+
+    Parameters:
+    ep_dict : dict
+        Dictionary mapping condition labels to MNE Epochs.
+    selected : list of str
+        Feature names to extract and use for analysis.
+
+    Returns:
+    dict
+        Dictionary mapping condition labels to normalized feature arrays.
+    """
     ica, ic_l, ic_r = fit_motor_ica(ep_dict)
     feats, names = {}, []
     for cond, epochs in ep_dict.items():
@@ -64,16 +91,58 @@ def extract_features(ep_dict, selected):
     return {c: scaler.transform(X) for c,X in sel.items()}
 
 def pick_control_component(gmm, X_known):
+    """
+    Identifies the Gaussian Mixture component that best represents the control group.
+
+    Parameters:
+    gmm : GaussianMixture
+        Fitted GMM model.
+    X_known : np.ndarray
+        Known control samples.
+
+    Returns:
+    int
+        Index of the control component.
+    """
     resp = gmm.predict_proba(X_known)
     return int(np.argmax(resp.mean(axis=0)))
 
 def label_control(gmm, X, ctrl_comp):
+    """
+    Labels samples as control based on GMM output and control component.
+
+    Parameters:
+    gmm : GaussianMixture
+        Fitted GMM model.
+    X : np.ndarray
+        Feature matrix.
+    ctrl_comp : int
+        Index of the control component.
+
+    Returns:
+    np.ndarray of bool
+        Boolean mask indicating which samples are classified as control.
+    """
     if TAU <= 0:
         return (gmm.predict(X) == ctrl_comp)
     resp = gmm.predict_proba(X)
     return (resp[:, ctrl_comp] >= TAU)
 
 def scenario1_prop(feats, K):
+    """
+    Scenario 1: Control-only split. Compares GMM classifications before and after adding new control data.
+
+    Parameters:
+    feats : dict
+        Dictionary of features per condition.
+    K : int
+        Number of GMM components.
+
+    Returns:
+    tuple
+        - 2x2 np.ndarray contingency table
+        - p-value from chi-squared test
+    """
     Xc = feats["Control"]
     A, B = train_test_split(Xc, test_size=0.5, random_state=RNG_SEED)
     AB  = np.vstack([A, B])
@@ -97,6 +166,22 @@ def scenario1_prop(feats, K):
     return table, pval
 
 def scenario2_prop(feats, tasks, K):
+    """
+    Scenario 2: Compare control classification before and after adding task data.
+
+    Parameters:
+    feats : dict
+        Dictionary of features per condition.
+    tasks : list of str
+        Task conditions to include ("Left", "Right", etc.).
+    K : int
+        Number of GMM components.
+
+    Returns:
+    tuple
+        - 2x2 np.ndarray contingency table
+        - p-value from chi-squared test
+    """
     Xc = feats["Control"]
     # Fit on Control only
     g1 = GaussianMixture(n_components=K, covariance_type="full", n_init=20, max_iter=500, reg_covar=1e-6, random_state=RNG_SEED).fit(Xc)
@@ -119,6 +204,15 @@ def scenario2_prop(feats, tasks, K):
     return table, pval
 
 def main():
+    """
+    Main execution function for the proportion-based sanity checks.
+
+    For each subject:
+        - Extracts features
+        - Runs Scenario 1: Control split A/B
+        - Runs Scenario 2: Control vs Task
+        - Prints contingency tables and chi-squared p-values
+    """
     K    = 1 + len(SCENARIO2_EPOCHS)
     mode = "hard MAP" if TAU<=0 else f"soft τ={TAU}"
     print(f"\n=== Proportion-based sanity check using {mode}, K={K} ===\n")

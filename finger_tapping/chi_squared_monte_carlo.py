@@ -29,8 +29,23 @@ N_MC      = 100         # Monte Carlo splits for Scenario 1
 TASKS     = ["Left","Right"]
 K         = 1 + len(TASKS)
 # ──────────────────────────────────────────────────────────────────────────────
-
 def normalise_conditions(raw):
+    """
+    Normalize condition labels from raw event IDs.
+
+    Parameters:
+    raw : Raw EEG object
+        Preprocessed raw EEG data with labeled event IDs.
+
+    Returns:
+    dict
+        Dictionary mapping standardized condition labels ("Control", "Left", "Right")
+        to corresponding event codes.
+
+    Raises:
+    RuntimeError
+        If the control condition is not found in the event IDs.
+    """
     patt = {"Control": re.compile("control", re.I), "Left": re.compile("left", re.I), "Right": re.compile("right", re.I)}
     ep = {n: raw[n] for n in raw.event_id}
     out = {}
@@ -44,6 +59,19 @@ def normalise_conditions(raw):
     return out
 
 def extract_features(ep_dict, selected):
+    """
+    Extracts and scales selected features from each condition's epochs.
+
+    Parameters:
+    ep_dict : dict
+        Dictionary mapping condition labels to MNE Epochs objects.
+    selected : list of str
+        List of selected feature names to extract and normalize.
+
+    Returns:
+    dict
+        Dictionary mapping condition labels to normalized feature arrays.
+    """
     ica, ic_l, ic_r = fit_motor_ica(ep_dict)
     feats, names = {}, []
     for cond, epochs in ep_dict.items():
@@ -63,16 +91,59 @@ def extract_features(ep_dict, selected):
     return {c: scaler.transform(X) for c,X in sel.items()}
 
 def pick_control_component(gmm, X_known):
+    """
+    Identifies the Gaussian Mixture component representing the control group.
+
+    Parameters:
+    gmm : GaussianMixture
+        Trained GMM object.
+    X_known : np.ndarray
+        Data known to belong to the control group.
+
+    Returns:
+    int
+        Index of the GMM component most representative of the control group.
+    """
     post = gmm.predict_proba(X_known)
     return int(np.argmax(post.mean(axis=0)))
 
 def label_control(gmm, X, ctrl_comp):
+    """
+    Labels samples as control or non-control based on GMM output.
+
+    Parameters:
+    gmm : GaussianMixture
+        Trained GMM object.
+    X : np.ndarray
+        Input feature data.
+    ctrl_comp : int
+        Index of the control component in the GMM.
+
+    Returns:
+    np.ndarray of bool
+        Boolean array indicating whether each sample is classified as control.
+    """
     if TAU <= 0:
         return (gmm.predict(X) == ctrl_comp)
     post = gmm.predict_proba(X)
     return (post[:,ctrl_comp] >= TAU)
 
 def scenario1_resample(feats):
+    """
+    Runs Scenario 1: Monte Carlo split validation using GMM and chi-squared tests.
+
+    Parameters:
+    feats : dict
+        Dictionary of normalized features by condition (must include "Control").
+
+    Returns:
+    tuple
+        - meanA: mean proportion classified as control in set A
+        - ciA: 95% confidence interval for control fraction in A
+        - meanAB: mean proportion classified as control in set B using AB fit
+        - ciAB: 95% confidence interval for control fraction in B
+        - fp_rate: false positive rate of the chi-squared test
+    """
     Xc = feats["Control"]
     rng = np.random.RandomState(RNG_SEED)
     pA_list, pAB_list, pvals = [], [], []
@@ -109,6 +180,15 @@ def scenario1_resample(feats):
     return meanA, ciA, meanAB, ciAB, fp_rate
 
 def main():
+    """
+    Main routine for performing the clinical sanity check.
+
+    For each subject:
+        - Loads and preprocesses data.
+        - Extracts and normalizes features.
+        - Performs resampling scenario.
+        - Prints control fractions and false positive rates.
+    """
     print(f"\n=== Clinical Sanity Check (hard MAP, K={K}) ===\n")
     for subj in SUBJECTS:
         print(f"Subject {subj}:")
