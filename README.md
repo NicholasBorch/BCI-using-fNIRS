@@ -65,15 +65,6 @@ pip install -r requirements.txt
 
 ---
 
-## Methodological Highlights
-
-- Domain-informed ICA decomposition for motor-relevant components
-- Hybrid raw + ICA features including kurtosis, AUC, slope, broadband energy
-- Model evaluation is unsupervised (GMM) but labels are interpreted with control knowledge
-- Extensive validation via contingency tests, false positive tracking, and split-sample checks
-
----
-
 ## License & Citation
 
 This codebase is open for academic and research use.  
