@@ -79,11 +79,3 @@ for (n1, d1), (n2, d2) in combinations(datasets.items(), 2):
     ]
 
 print(pvals.round(3))
-
-    
-
-# control = simple_pipeline("01")["Control"].get_data()
-# control_baseline = control[:,:,:39]
-# control_activation = control[:,:,39:]
-
-# abs(control_activation.mean()) - abs(control_baseline.mean())

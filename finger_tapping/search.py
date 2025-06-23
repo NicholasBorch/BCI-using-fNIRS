@@ -21,7 +21,7 @@ from sklearn.mixture import GaussianMixture
 from sklearn.metrics import fbeta_score, precision_score, recall_score, f1_score, accuracy_score, confusion_matrix, adjusted_rand_score, silhouette_score
 
 from finger_tapping.preprocessing import simple_pipeline, SUBJECTS
-from finger_tapping.feature_preparation4 import extract_all_epoch_features, fit_motor_ica, DEFAULT_SAMPLING_RATE_HZ
+from finger_tapping.feature_preparation import extract_all_epoch_features, fit_motor_ica, DEFAULT_SAMPLING_RATE_HZ
 
 N_RANDOM_TRIALS = 30_000
 MAX_FEATURES    = 5

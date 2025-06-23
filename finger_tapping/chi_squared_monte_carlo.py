@@ -17,7 +17,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 from finger_tapping.preprocessing import simple_pipeline, SUBJECTS
-from finger_tapping.feature_preparation4 import extract_all_epoch_features, fit_motor_ica, DEFAULT_SAMPLING_RATE_HZ
+from finger_tapping.feature_preparation import extract_all_epoch_features, fit_motor_ica, DEFAULT_SAMPLING_RATE_HZ
 
 # CHOOSE FEATURE CONFIGURATION
 # SELECTED_FEATURES = ["delta_mean", "delta_variance"]
