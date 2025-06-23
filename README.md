@@ -1,5 +1,5 @@
 # BCI using fNIRS
-
+This repository is the product of the course "02466 Project Work - Bachelor of Artificial Intelligence and Data" at the Technical University of Denmark.
 Functional Near-Infrared Spectroscopy (fNIRS) analysis for brain–computer interface (BCI) research.  
 The repository bundles **pre-processing**, **feature extraction**, **unsupervised Gaussian-mixture modelling (GMM)** sanity checks, and an automated **random feature-subset search** aimed at maximising F₂-score in Control vs Task discrimination.
 
