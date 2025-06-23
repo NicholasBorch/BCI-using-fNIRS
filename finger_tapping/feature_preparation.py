@@ -2,21 +2,6 @@
 Preparing fNIRS features from pre-processed epochs
 --------------------------------------------------------------------------
 This module extracts a set of features from a single epoch of fNIRS data
-
-1. Amplitude and dispersion:
-- delta_mean, peak_amplitude, delta_variance, auc_difference, abs_auc_activation, power_epoch
-
-2. Shape descriptors:
-- kurtosis_activation, extrema_abs_slope, extrema_line_length  
-
-3. Broadband energy:
-- total_band_power_delta (0.01 - 1.20 Hz, activation minus baseline)
-
-If an ICA model and the indices of the “left” and "right" motor ICs are given:
-- the same 9 features (all except power_epoch) are extracted from each IC trace, and  
-- their mean-squared powers are added ("power_ic_left", "power_ic_right").
-
-Total with ICA gives: 10 (raw) + 2 (IC powers) + 2 * 9 (IC features) = 30 features.
 """
 
 from typing import Dict, Tuple, Optional
